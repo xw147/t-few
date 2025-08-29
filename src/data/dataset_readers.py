@@ -1,7 +1,11 @@
+import datetime
 import os
 import json
+import pickle
+
 import numpy as np
-from datasets import load_dataset, load_from_disk
+import yaml
+from datasets import load_dataset, load_from_disk, concatenate_datasets, DatasetDict, Dataset
 from promptsource.templates import DatasetTemplates
 import pkg_resources
 from promptsource import templates
@@ -9,10 +13,30 @@ import csv
 from typing import Dict, List, Optional, Tuple
 import re
 import pandas as pd
+from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score, precision_score, recall_score
+
+templates_for_custom_tasks = {
+    'income': '50000_dollars',
+    'car': 'rate_decision',
+    'heart': 'heart_disease',
+    'diabetes': 'diabetes',
+    'creditg': 'creditg',
+    'bank': 'bank',
+    'blood': 'blood',
+    'jungle': 'jungle',
+    'calhousing': 'calhousing',
+    'ico': 'ico-fraud-classification',
+}
+
+
+def is_custom_task(cfg):
+    task = cfg.dataset.split('_')[0].lower()
+    if task in templates_for_custom_tasks.keys():
+        return True
 
 
 def get_dataset_reader(config):
-    dataset_class = {
+    dataset_dict = {
         "T0Mixture": T0MixtureReader,
         "rte": RTEReader,
         "h-swag": HSwagReader,
@@ -36,11 +60,25 @@ def get_dataset_reader(config):
         "tweet_eval_hate": RaftReader,
         "twitter_complaints": RaftReader,
         "semiconductor_org_types": RaftReader,
-    }[config.dataset]
+    }
+
+    dataset_class = None
+    if config.dataset in dataset_dict:
+        dataset_class = dataset_dict[config.dataset]
+    elif str(config.dataset).split('_' + str(config.num_shot))[0] in dataset_dict:
+        dataset_class = dataset_dict[str(config.dataset).split('_' + str(config.num_shot))[0]]
+    else:
+        # Check if it's ICO dataset
+        task = config.dataset.split('_')[0].lower()
+        if task == 'ico':
+            dataset_class = ICOCategoricalReader  # Use ICO-specific reader
+        else:
+            dataset_class = CustomCategoricalReader  # Use default reader
+
     return dataset_class(config)
 
 
-DATASETS_OFFLINE = "/fruitbasket/datasets/datasets_offline"
+DATASETS_OFFLINE = "/root/TabLLM/datasets_serialized"
 MAX_EXAMPLES_PER_DATASET = 500_000
 TASK_BLACKLIST = [
     # Tasks which often tokenize to > 1024 tokens currently
@@ -122,7 +160,6 @@ class BaseDatasetReader(object):
                 if self.templates[template_name].metadata.original_task:
                     list_idx.append(idx)
                     list_templates.append(self.templates[template_name])
-            print(list_idx)
 
             return list_templates
         elif template_idx == -2:
@@ -141,7 +178,10 @@ class BaseDatasetReader(object):
         :param split: split of data
         """
         if os.path.exists(DATASETS_OFFLINE):
-            orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, *self.dataset_stash))[split]
+            try:
+                orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, *self.dataset_stash))[split]
+            except FileNotFoundError:
+                orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, self.dataset_stash[0]))[split]
         else:
             orig_data = load_dataset(*self.dataset_stash, split=split, cache_dir=os.environ["HF_HOME"])
         return orig_data
@@ -182,6 +222,127 @@ class BaseDatasetReader(object):
         matching = [a == b for a, b in zip(accumulated["prediction"], accumulated["label"])]
         accuracy = sum(matching) / len(matching)
         return {"accuracy": accuracy}
+
+
+class CustomCategoricalReader(BaseDatasetReader):
+    def __init__(self, config):
+        task = config.dataset.split('_')[0].lower()
+        # Select correct subtask (especially for right template)
+        subtask = templates_for_custom_tasks[task]
+        assert subtask is not None
+        super().__init__(config, dataset_stash=(config.dataset, subtask))
+
+    # There are no pre-defined templates for this custom task, so load them manually by hijacking this function.
+    def get_template(self, template_idx):
+        # Add custom template
+        task = self.config.dataset.split('_')[0].lower()
+        yaml_dict = yaml.load(open('/root/TabLLM/templates/templates_' + task + '.yaml', "r"),
+                              Loader=yaml.FullLoader)
+        prompts = yaml_dict['templates']
+
+        # Set DatasetTemplates object in self.templates to None bs cannot build it here
+        self.templates = None
+        # Return a list of prompts (usually only a single one with dataset_stash[1] name)
+        return [t for k, t in prompts.items() if t.get_name() == self.dataset_stash[1]]
+
+    def read_orig_dataset(self, split):
+        # External datasets are not yet shuffled, so do it now
+        orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, self.dataset_stash[0]))
+        # Debug output for importance
+        split_data = True  # Default True
+        if split_data:
+            data = orig_data.train_test_split(test_size=0.20, seed=self.config.seed)
+            data2 = data['test'].train_test_split(test_size=0.50, seed=self.config.seed)
+            # No validation/test split used for external datasets
+            dataset_dict = DatasetDict({'train': data['train'],
+                                        'validation': concatenate_datasets([data2['train'], data2['test']]),
+                                        'test': Dataset.from_dict({'note': [], 'label': []})})
+            orig_data = dataset_dict[split]
+
+        # In case dataset has no idx per example, add that here bc manually created ones might not have an idx.
+        if 'idx' not in orig_data.column_names:
+            orig_data = orig_data.add_column(name='idx', column=range(0, orig_data.num_rows))
+
+        return orig_data
+
+    def _sample_few_shot_data(self, orig_data):
+        if self.config.num_shot == 'all':
+            return [x for x in orig_data]
+
+        if self.config.num_shot == 0 or self.config.num_shot == '0':
+            return []
+
+        # if not self.config.balanced_ibc:
+        #     return super()._sample_few_shot_data(orig_data)
+
+        saved_random_state = np.random.get_state()
+        np.random.seed(self.config.few_shot_random_seed)
+        # Create a balanced dataset for categorical data
+        labels = {label: len([ex['idx'] for ex in orig_data if ex['label'] == label])
+                  for label in list(set(ex['label'] for ex in orig_data))}
+        num_labels = len(labels.keys())
+        ex_label = int(self.config.num_shot / num_labels)
+        ex_last_label = self.config.num_shot - ((num_labels - 1) * ex_label)
+        ex_per_label = (num_labels - 1) * [ex_label] + [ex_last_label]
+        assert sum(ex_per_label) == self.config.num_shot
+
+        # Select num instances per label
+        old_num_labels = []
+        datasets_per_label = []
+        for i, label in enumerate(labels.keys()):
+            indices = [ex['idx'] for ex in orig_data if ex['label'] == label]
+            old_num_labels.append(len(indices))
+            # Sample with replacement from label indices
+            samples_indices = list(np.random.choice(indices, ex_per_label[i]))
+            datasets_per_label.append(orig_data.select(samples_indices))
+        orig_data = concatenate_datasets(datasets_per_label)
+
+        # Check new labels
+        old_labels = labels
+        labels = {label: len([ex['idx'] for ex in orig_data if ex['label'] == label])
+                  for label in list(set(ex['label'] for ex in orig_data))}
+        print(f"Via sampling with replacement old label distribution {old_labels} to new {labels}")
+        assert sum(labels.values()) == self.config.num_shot
+        assert len(orig_data) == self.config.num_shot
+
+        np.random.set_state(saved_random_state)
+        # Now randomize and (selection of num_shots redundant now bc already done).
+        return super()._sample_few_shot_data(orig_data)
+
+    def compute_metric(self, accumulated):
+        metrics = super().compute_metric(accumulated)
+        # print(accumulated['probabilities'])
+
+        binary = all([True if l in [0, 1] else False for l in accumulated['label']])
+        if binary:
+            pos_probs = [p[1] for p in accumulated['probabilities']]
+            roc_auc = roc_auc_score(accumulated['label'], pos_probs)
+            pr_auc = pr_auc_score(accumulated['label'], pos_probs)
+        else:
+            probs = [p for p in accumulated['probabilities']]
+            roc_auc = roc_auc_score(accumulated['label'], probs, multi_class='ovr', average='macro')
+            # Abuse pr for AUC ovo here
+            pr_auc = roc_auc_score(accumulated['label'], probs, multi_class='ovo', average='macro')
+
+        micro_f1 = f1_score(accumulated['label'], accumulated['prediction'], average='micro')
+        macro_f1 = f1_score(accumulated['label'], accumulated['prediction'], average='macro')
+        metrics = {'AUC': roc_auc, 'PR': pr_auc, 'micro_f1': micro_f1, 'macro_f1': macro_f1,  **metrics}
+        # Also record number of instances evaluated
+        metrics = {**metrics, 'num': len(accumulated['prediction'])}
+
+        # Debug: Only for importance
+        store_probabilities = False  # Default False
+        if store_probabilities:
+            prop_output = 't0-probabilities-' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + '.p'
+            with open(prop_output, 'wb') as f:
+                pickle.dump(accumulated['probabilities'], f)
+
+        return metrics
+
+
+def pr_auc_score(labels, probabilities):
+    precision, recall, _ = precision_recall_curve(labels, probabilities)
+    return auc(recall, precision)
 
 
 class StoryClozeReader(BaseDatasetReader):
@@ -602,3 +763,41 @@ class RaftReader(object):
         matching = [a == b for a, b in zip(accumulated["prediction"], accumulated["label"])]
         accuracy = sum(matching) / len(matching)
         return {"accuracy": accuracy}
+
+
+class ICOCategoricalReader(CustomCategoricalReader):
+    """Custom reader for ICO dataset with F1, Precision, Recall metrics"""
+    
+    def compute_metric(self, accumulated):
+        # Get base metrics (accuracy)
+        metrics = BaseDatasetReader.compute_metric(self, accumulated)
+        
+        # ICO-specific metrics: F1, Precision, Recall
+        binary = all([True if l in [0, 1] else False for l in accumulated['label']])
+        
+        if binary:
+            # Binary classification metrics
+            precision = precision_score(accumulated['label'], accumulated['prediction'], average='binary')
+            recall = recall_score(accumulated['label'], accumulated['prediction'], average='binary')
+            f1_binary = f1_score(accumulated['label'], accumulated['prediction'], average='binary')
+            
+            metrics.update({
+                'f1': f1_binary,
+                'precision': precision, 
+                'recall': recall,
+                'num': len(accumulated['prediction'])
+            })
+        else:
+            # Multi-class metrics (fallback)
+            precision_macro = precision_score(accumulated['label'], accumulated['prediction'], average='macro')
+            recall_macro = recall_score(accumulated['label'], accumulated['prediction'], average='macro')
+            f1_macro = f1_score(accumulated['label'], accumulated['prediction'], average='macro')
+            
+            metrics.update({
+                'f1': f1_macro,
+                'precision': precision_macro,
+                'recall': recall_macro,
+                'num': len(accumulated['prediction'])
+            })
+        
+        return metrics
