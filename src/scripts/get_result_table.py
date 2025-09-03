@@ -2,7 +2,7 @@ from glob import glob
 import json
 from collections import defaultdict
 from scipy.stats import iqr
-from numpy import median
+from numpy import median, mean, std
 import os
 import argparse
 
@@ -18,7 +18,7 @@ def make_result_table(args):
         def read_last_eval(fname):
             with open(fname) as f:
                 e = json.loads(f.readlines()[-1])
-            return e["accuracy"]
+            return e["AUC"]
 
         acc_by_dataset = defaultdict(lambda: list())
 
@@ -33,7 +33,7 @@ def make_result_table(args):
 
         def result_str(acc_list):
             if len(acc_list) > 1:
-                return f"{median(acc_list) * 100:.2f} ({iqr(acc_list) * 100:.2f})"
+                return f"{mean(acc_list) * 100:.2f} ({std(acc_list) * 100:.2f})"
             else:
                 return f"{acc_list[0] * 100:.2f}"
 

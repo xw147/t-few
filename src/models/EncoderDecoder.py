@@ -32,6 +32,9 @@ class EncoderDecoder(LightningModule):
 
         self._last_global_step_saved = -1
 
+        self.best_eval_model_metric = [-1]
+        self.best_eval_global_step = -1
+
         if self.config.fishmask_mode is not None:
             fishmask_plugin_on_init(self)
 
@@ -64,6 +67,7 @@ class EncoderDecoder(LightningModule):
                 .view(bs, num_choices, -1)
                 .sum(dim=-1)
             )
+            # Length normalization
             if self.config.length_norm > 0:
                 choices_scores = choices_scores / torch.pow(
                     (choices_ids != self.tokenizer.pad_token_id).sum(dim=-1), self.config.length_norm
@@ -76,6 +80,8 @@ class EncoderDecoder(LightningModule):
             )
 
             tensorboard_logs = {"lm_loss": lm_loss.item()}
+            # I think mc loss corresponds to the LN-loss which is a softmax-cross entropy loss for length normalized
+            # output sequences
             if self.config.mc_loss > 0:
                 mc_loss = F.cross_entropy(-choices_scores, labels)
                 tensorboard_logs["mc_loss"] = mc_loss.item()
@@ -130,7 +136,6 @@ class EncoderDecoder(LightningModule):
         :return:
         """
         if self.config.model_modifier == "intrinsic":
-            from .intrinsic import intrinsic_plugin_on_step
             intrinsic_plugin_on_step(self)
 
         input_ids, choices_ids, labels = batch["input_ids"], batch["answer_choices_ids"], batch["labels"]
@@ -157,6 +162,7 @@ class EncoderDecoder(LightningModule):
                 .view(bs, num_choices, -1)
                 .sum(dim=-1)
             )
+            # Length normalization
             if self.config.length_norm > 0:
                 choices_scores = choices_scores / torch.pow(
                     (choices_ids != self.tokenizer.pad_token_id).sum(dim=-1), self.config.length_norm
@@ -212,11 +218,19 @@ class EncoderDecoder(LightningModule):
             pred_score, prediction = choices_scores.min(dim=1)
 
         score_gt = choices_scores[range(bs), labels]
+
+        # Infer "pseudo" probs for choices
+        probs = torch.exp(-choices_scores)
+        probs = torch.divide(probs, (torch.sum(probs, dim=-1)).repeat(num_choices, 1).permute(1, 0))
+
+        # Careful choices_scores are changed here (so that label scores are replaced by maximum)
+        # Choices scores are length normalized, but seems fine since they are also using them for predictions.
         choices_scores[range(bs), labels] = choices_scores.max(dim=-1)[0]
         score_cand = choices_scores.min(dim=-1)[0]
 
         batch_output = {
             "prediction": prediction.tolist(),
+            "probabilities": probs.tolist(),
             "label": labels.tolist(),
             "idx": batch["idx"].tolist(),
             "log.score_gt": score_gt.tolist(),
@@ -228,7 +242,7 @@ class EncoderDecoder(LightningModule):
         batch_output = self.predict(batch)
         return batch_output
 
-    def validation_epoch_end(self, outputs):
+    def validation_test_shared_preparation(self, outputs, output_file):
         # exchange outputs between processes
         if self.use_deepspeed or self.use_ddp:
             gathered_outputs = [[] for _ in range(dist.get_world_size())]
@@ -243,7 +257,7 @@ class EncoderDecoder(LightningModule):
                 for key, value in batch_output.items():
                     accumulated[key].extend(value)
 
-            # multi-process may yield dupliated examples in the last batch
+            # multi-process may yield duplicated examples in the last batch
             valid_mask = []
             idx_set = set()
             for idx in accumulated["idx"]:
@@ -254,18 +268,41 @@ class EncoderDecoder(LightningModule):
 
             # compute and log results
             metrics = self.dataset_reader.compute_metric(accumulated)
+            # Append number of best steps to metrics
+            metrics = {**metrics, 'num_steps': self.best_eval_global_step}
             for key, value in accumulated.items():
                 if key.startswith("log."):
                     metrics[key.replace("log.", "")] = mean(value)
 
             result_str = json.dumps(metrics) + "\n"
-            with open(self.config.dev_score_file, "a+") as f:
+            with open(output_file, "a+") as f:
                 f.write(result_str)
             print("\n" + result_str)
         else:
             metrics = {}
 
+        return metrics
+
+    def validation_epoch_end(self, outputs):
+        metrics = self.validation_test_shared_preparation(outputs, self.config.dev_score_file)
+
+        # Consider best validation performance based on AUC
+        relevant_metrics = ['AUC']
+        eval_model_metric = [metrics.get(m, -1) for m in relevant_metrics]
+        if eval_model_metric > self.best_eval_model_metric:
+            self.best_eval_model_metric = eval_model_metric
+            self.best_eval_global_step = self.global_step
+            print(f"Stored new best metric {relevant_metrics} with values {eval_model_metric} at step {self.global_step}.")
+
         self.save_model()
+        return metrics
+
+    def test_step(self, batch, batch_idx):
+        batch_output = self.predict(batch)
+        return batch_output
+
+    def test_epoch_end(self, outputs):
+        metrics = self.validation_test_shared_preparation(outputs, self.config.test_score_file)
         return metrics
 
     def configure_optimizers(self):
@@ -284,6 +321,13 @@ class EncoderDecoder(LightningModule):
 
         if self.config.fishmask_mode is not None:
             fishmask_plugin_on_end(self)
+
+    def on_test_start(self):
+        # Evaluate model on best metric if training set exists
+        model_fname = os.path.join(self.config.exp_dir, f"global_step{self.best_eval_global_step}.pt")
+        print(f"Tested on best model step {self.best_eval_global_step} (global_step{self.best_eval_global_step}.pt)")
+        self.config.load_weight = model_fname
+        self.load_model()
 
     def load_model(self):
         if self.config.load_weight != "":
