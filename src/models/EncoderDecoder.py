@@ -287,6 +287,7 @@ class EncoderDecoder(LightningModule):
         metrics = self.validation_test_shared_preparation(outputs, self.config.dev_score_file)
 
         # Consider best validation performance based on AUC
+        ################### may need to change for PRAUC ###################
         relevant_metrics = ['AUC']
         eval_model_metric = [metrics.get(m, -1) for m in relevant_metrics]
         if eval_model_metric > self.best_eval_model_metric:
@@ -331,7 +332,7 @@ class EncoderDecoder(LightningModule):
 
     def load_model(self):
         if self.config.load_weight != "":
-            trainable_states = torch.load(self.config.load_weight, map_location=torch.device("cpu"))
+            trainable_states = torch.load(self.config.load_weight, map_location=torch.device("cpu")) ########### why cpu here
             load_result = self.model.load_state_dict(trainable_states, strict=False)
             assert (
                 len(load_result.unexpected_keys) == 0
