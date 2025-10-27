@@ -15,6 +15,17 @@ import re
 import pandas as pd
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score, precision_score, recall_score
 
+# ==== PATH CONFIGURATION ====
+# Windows (comment out when on Linux HPC):
+TABLLM_BASE = "C:/work/TabLLM"
+
+# Linux HPC (uncomment when on Linux HPC):
+# TABLLM_BASE = "/root/TabLLM"
+
+# Auto-generated paths:
+DATASETS_OFFLINE = os.path.join(TABLLM_BASE, "datasets_serialized")
+TEMPLATES_BASE = os.path.join(TABLLM_BASE, "templates")
+
 templates_for_custom_tasks = {
     'income': '50000_dollars',
     'car': 'rate_decision',
@@ -79,7 +90,6 @@ def get_dataset_reader(config):
     return dataset_class(config)
 
 
-DATASETS_OFFLINE = "/work/TabLLM/datasets_serialized"
 MAX_EXAMPLES_PER_DATASET = 500_000
 TASK_BLACKLIST = [
     # Tasks which often tokenize to > 1024 tokens currently
@@ -231,13 +241,22 @@ class CustomCategoricalReader(BaseDatasetReader):
         # Select correct subtask (especially for right template)
         subtask = templates_for_custom_tasks[task]
         assert subtask is not None
-        super().__init__(config, dataset_stash=(config.dataset, subtask))
+        
+        # Initialize without calling parent __init__ to avoid promptsource warning
+        self.config = config
+        self.dataset_stash = (config.dataset, subtask)
+        
+        # Skip the DatasetTemplates initialization that causes the warning
+        self.templates = None
+        self.train_template = self.get_template(self.config.train_template_idx)
+        self.eval_template = self.get_template(self.config.eval_template_idx)
 
     # There are no pre-defined templates for this custom task, so load them manually by hijacking this function.
     def get_template(self, template_idx):
         # Add custom template
         task = self.config.dataset.split('_')[0].lower()
-        yaml_dict = yaml.load(open('/work/TabLLM/templates/templates_' + task + '.yaml', "r"),
+        template_file_path = os.path.join(TEMPLATES_BASE, f'templates_{task}.yaml')
+        yaml_dict = yaml.load(open(template_file_path, "r"),
                               Loader=yaml.FullLoader)
         prompts = yaml_dict['templates']
 

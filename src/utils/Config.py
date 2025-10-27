@@ -1,10 +1,17 @@
 import json
 import os
 import ast
+from .environment import get_env_manager, print_environment_info
 
 
 class Config(object):
     def __init__(self, filenames=None, kwargs=None):
+        # Initialize environment manager
+        self.env_manager = get_env_manager()
+        
+        # Print environment info
+        print_environment_info()
+        
         # Experiment configs
         self.exp_dir = None
         self.exp_name = None
@@ -119,7 +126,25 @@ class Config(object):
         if kwargs:
             self.update_kwargs(kwargs)
 
+        # Apply environment-specific overrides
+        self._apply_environment_overrides()
+
         self.set_exp_dir()
+
+    def _apply_environment_overrides(self):
+        """Apply environment-specific configuration overrides"""
+        env_overrides = self.env_manager.get_config_overrides()
+        
+        if env_overrides:
+            print(f"Applying environment overrides: {list(env_overrides.keys())}")
+            for key, value in env_overrides.items():
+                if hasattr(self, key):
+                    old_value = getattr(self, key)
+                    setattr(self, key, value)
+                    if self.env_manager.debug_mode:
+                        print(f"  [DEBUG] {key}: {old_value} → {value}")
+                else:
+                    print(f"  [WARNING] Unknown config key: {key}")
 
     def update_kwargs(self, kwargs, eval=True):
         for (k, v) in kwargs.items():
@@ -160,7 +185,21 @@ class Config(object):
         Converts parameter values in config to json
         :return: json
         """
-        return json.dumps(self.__dict__, indent=4, sort_keys=False)
+        # Create a copy of __dict__ excluding non-serializable objects
+        serializable_dict = {}
+        for key, value in self.__dict__.items():
+            # Skip EnvironmentManager and other non-serializable objects
+            if key == 'env_manager':
+                continue
+            try:
+                # Test if the value is JSON serializable
+                json.dumps(value)
+                serializable_dict[key] = value
+            except (TypeError, ValueError):
+                # Skip non-serializable values
+                continue
+        
+        return json.dumps(serializable_dict, indent=4, sort_keys=False)
 
     def save_config(self, filename):
         """

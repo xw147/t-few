@@ -26,4 +26,6 @@ env.yaml
 untracked
 .so
 .o
-note/
+install-note/
+.cache/
+exp_out

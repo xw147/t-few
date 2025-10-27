@@ -1,0 +1,31 @@
+{
+    "debug_mode": true,
+    "debug_settings": {
+        "num_steps": 2,
+        "eval_epoch_interval": 1,
+        "batch_size": 2,
+        "grad_accum_factor": 1,
+        "num_shot": 2,
+        "max_seq_len": 128,
+        "use_deepspeed": false,
+        "compute_strategy": "none",
+        "compute_precision": "32",
+        "save_model": false,
+        "eval_before_training": true,
+        "quick_test_only": true
+    },
+    "production_settings": {
+        "num_steps": 15000,
+        "eval_epoch_interval": 30,
+        "batch_size": 4,
+        "grad_accum_factor": 1,
+        "num_shot": 4,
+        "max_seq_len": 512,
+        "use_deepspeed": true,
+        "compute_strategy": "deepspeed_stage_3_offload",
+        "compute_precision": "bf16",
+        "save_model": true,
+        "eval_before_training": false,
+        "quick_test_only": false
+    }
+}

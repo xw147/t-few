@@ -7,7 +7,28 @@ from pytorch_lightning import LightningModule
 from src.utils.get_optimizer import get_optimizer
 from src.utils.get_scheduler import get_scheduler
 from statistics import mean
-from deepspeed.utils import zero_to_fp32
+
+# Environment-aware DeepSpeed import
+from ..utils.environment import get_env_manager
+
+# Only import DeepSpeed if we should use it
+_env_manager = get_env_manager()
+if not _env_manager.should_skip_deepspeed():
+    try:
+        from deepspeed.utils import zero_to_fp32
+        DEEPSPEED_AVAILABLE = True
+    except ImportError:
+        DEEPSPEED_AVAILABLE = False
+        def zero_to_fp32(model, *args, **kwargs):
+            """Dummy function for DeepSpeed compatibility"""
+            return model
+else:
+    # Skip DeepSpeed import entirely on Windows/debug mode
+    DEEPSPEED_AVAILABLE = False
+    def zero_to_fp32(model, *args, **kwargs):
+        """Dummy function for DeepSpeed compatibility"""
+        return model
+
 from .fishmask import fishmask_plugin_on_init, fishmask_plugin_on_optimizer_step, fishmask_plugin_on_end
 
 
@@ -26,7 +47,15 @@ class EncoderDecoder(LightningModule):
         self.model = transformer
         self.dataset_reader = dataset_reader
 
-        self.use_deepspeed = self.config.compute_strategy.startswith("deepspeed")
+        # Environment-aware DeepSpeed usage
+        env_manager = get_env_manager()
+        if env_manager.should_skip_deepspeed():
+            self.use_deepspeed = False  # Force disable in debug/Windows mode
+            if self.config.compute_strategy.startswith("deepspeed"):
+                print("[DEBUG MODE] DeepSpeed disabled for compatibility")
+        else:
+            self.use_deepspeed = self.config.compute_strategy.startswith("deepspeed")
+            
         self.use_ddp = self.config.compute_strategy.startswith("ddp")
         self.load_model()
 
@@ -34,6 +63,10 @@ class EncoderDecoder(LightningModule):
 
         self.best_eval_model_metric = [-1]
         self.best_eval_global_step = -1
+
+        # Store outputs for PyTorch Lightning v2.0+ compatibility
+        self.validation_step_outputs = []
+        self.test_step_outputs = []
 
         if self.config.fishmask_mode is not None:
             fishmask_plugin_on_init(self)
@@ -238,8 +271,17 @@ class EncoderDecoder(LightningModule):
         }
         return batch_output
 
+    def on_validation_epoch_start(self):
+        # Clear validation outputs at start of epoch
+        self.validation_step_outputs.clear()
+
+    def on_test_epoch_start(self):
+        # Clear test outputs at start of epoch  
+        self.test_step_outputs.clear()
+
     def validation_step(self, batch, batch_idx):
         batch_output = self.predict(batch)
+        self.validation_step_outputs.append(batch_output)
         return batch_output
 
     def validation_test_shared_preparation(self, outputs, output_file):
@@ -283,7 +325,8 @@ class EncoderDecoder(LightningModule):
 
         return metrics
 
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
+        outputs = self.validation_step_outputs
         metrics = self.validation_test_shared_preparation(outputs, self.config.dev_score_file)
 
         # Consider best validation performance based on AUC
@@ -296,14 +339,20 @@ class EncoderDecoder(LightningModule):
             print(f"Stored new best metric {relevant_metrics} with values {eval_model_metric} at step {self.global_step}.")
 
         self.save_model()
+        # Clear outputs for next epoch
+        self.validation_step_outputs.clear()
         return metrics
 
     def test_step(self, batch, batch_idx):
         batch_output = self.predict(batch)
+        self.test_step_outputs.append(batch_output)
         return batch_output
 
-    def test_epoch_end(self, outputs):
+    def on_test_epoch_end(self):
+        outputs = self.test_step_outputs
         metrics = self.validation_test_shared_preparation(outputs, self.config.test_score_file)
+        # Clear outputs for next epoch
+        self.test_step_outputs.clear()
         return metrics
 
     def configure_optimizers(self):
@@ -350,10 +399,13 @@ class EncoderDecoder(LightningModule):
                 self.trainer.model.save_checkpoint(distributed_save_path)
                 torch.distributed.barrier()
                 if dist.get_rank() == 0:
-                    trainable_states = zero_to_fp32.get_fp32_state_dict_from_zero_checkpoint(distributed_save_path)
-                    prefix_length = len("module.model.")
-                    trainable_states = {k[prefix_length:]: v for k, v in trainable_states.items()}
-                    torch.save(trainable_states, model_fname)
+                    if DEEPSPEED_AVAILABLE:
+                        trainable_states = zero_to_fp32.get_fp32_state_dict_from_zero_checkpoint(distributed_save_path)
+                        prefix_length = len("module.model.")
+                        trainable_states = {k[prefix_length:]: v for k, v in trainable_states.items()}
+                        torch.save(trainable_states, model_fname)
+                    else:
+                        print("Warning: DeepSpeed not available, skipping checkpoint conversion")
             else:
                 trainable_states = {
                     param_name: param_weight.cpu()
@@ -367,3 +419,4 @@ class EncoderDecoder(LightningModule):
     def on_before_optimizer_step(self, optimizer, optimizer_idx):
         if self.config.fishmask_mode is not None:
             fishmask_plugin_on_optimizer_step(self)
+
