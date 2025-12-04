@@ -39,21 +39,47 @@ def main(config):
     model = EncoderDecoder(config, tokenizer, model, dataset_reader)
     logger = TensorBoardLogger(config.exp_dir, name="log")
 
-    trainer = Trainer(
-        enable_checkpointing=False,
-        gpus=torch.cuda.device_count(),
-        precision=config.compute_precision,
-        amp_backend="native",
-        strategy=config.compute_strategy if config.compute_strategy != "none" else None,
-        logger=logger,
-        log_every_n_steps=4,
-        max_steps=config.num_steps,
-        min_steps=config.num_steps,
-        num_sanity_val_steps=-1 if config.eval_before_training else 0,
-        check_val_every_n_epoch=config.eval_epoch_interval,
-        accumulate_grad_batches=config.grad_accum_factor,
-        gradient_clip_val=config.grad_clip_norm,
-    )
+    # Handle PyTorch Lightning 2.x API changes
+    # In Lightning 2.x, 'gpus' is deprecated, use 'devices' and 'accelerator'
+    import pytorch_lightning as pl
+    pl_version = int(pl.__version__.split('.')[0])
+    
+    if pl_version >= 2:
+        # PyTorch Lightning 2.x API
+        trainer_kwargs = {
+            "enable_checkpointing": False,
+            "accelerator": "mps" if torch.backends.mps.is_available() else "cpu",
+            "devices": 1,  # Use 1 device (MPS or CPU)
+            "precision": "16-mixed" if config.compute_precision == 16 else 32,
+            "strategy": config.compute_strategy if config.compute_strategy != "none" else "auto",
+            "logger": logger,
+            "log_every_n_steps": 4,
+            "max_steps": config.num_steps,
+            "min_steps": config.num_steps,
+            "num_sanity_val_steps": -1 if config.eval_before_training else 0,
+            "check_val_every_n_epoch": config.eval_epoch_interval,
+            "accumulate_grad_batches": config.grad_accum_factor,
+            "gradient_clip_val": config.grad_clip_norm,
+        }
+    else:
+        # PyTorch Lightning 1.x API (legacy)
+        trainer_kwargs = {
+            "enable_checkpointing": False,
+            "gpus": torch.cuda.device_count(),
+            "precision": config.compute_precision,
+            "amp_backend": "native",
+            "strategy": config.compute_strategy if config.compute_strategy != "none" else None,
+            "logger": logger,
+            "log_every_n_steps": 4,
+            "max_steps": config.num_steps,
+            "min_steps": config.num_steps,
+            "num_sanity_val_steps": -1 if config.eval_before_training else 0,
+            "check_val_every_n_epoch": config.eval_epoch_interval,
+            "accumulate_grad_batches": config.grad_accum_factor,
+            "gradient_clip_val": config.grad_clip_norm,
+        }
+    
+    trainer = Trainer(**trainer_kwargs)
     trainer.fit(model, datamodule)
 
 
@@ -66,7 +92,8 @@ if __name__ == "__main__":
     config = Config(args.config_files, args.kwargs)
     print(f"Start experiment {config.exp_name}")
     # Setup config
-    assert config.compute_strategy in ["none", "ddp", "deepspeed_stage_3_offload", "deepspeed_stage_3"]
+    assert config.compute_strategy in ["none", "ddp"], \
+        "Only 'none' and 'ddp' strategies are supported on macOS. DeepSpeed requires Linux."
     if config.fishmask_mode == "create":
         print("Detecting fishmask_mode=create, override batch_size, num_step, fishmask_path")
         config.batch_size = 1

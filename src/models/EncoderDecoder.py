@@ -7,8 +7,15 @@ from pytorch_lightning import LightningModule
 from src.utils.get_optimizer import get_optimizer
 from src.utils.get_scheduler import get_scheduler
 from statistics import mean
-from deepspeed.utils import zero_to_fp32
 from .fishmask import fishmask_plugin_on_init, fishmask_plugin_on_optimizer_step, fishmask_plugin_on_end
+
+# Make DeepSpeed optional for macOS compatibility
+try:
+    from deepspeed.utils import zero_to_fp32
+    DEEPSPEED_AVAILABLE = True
+except ImportError:
+    DEEPSPEED_AVAILABLE = False
+    zero_to_fp32 = None
 
 
 class EncoderDecoder(LightningModule):
@@ -26,8 +33,14 @@ class EncoderDecoder(LightningModule):
         self.model = transformer
         self.dataset_reader = dataset_reader
 
-        self.use_deepspeed = self.config.compute_strategy.startswith("deepspeed")
+        self.use_deepspeed = self.config.compute_strategy.startswith("deepspeed") and DEEPSPEED_AVAILABLE
         self.use_ddp = self.config.compute_strategy.startswith("ddp")
+        
+        # Warn if DeepSpeed strategy is requested but not available
+        if self.config.compute_strategy.startswith("deepspeed") and not DEEPSPEED_AVAILABLE:
+            print("WARNING: DeepSpeed strategy requested but DeepSpeed is not installed. Falling back to single-GPU training.")
+            print("To use DeepSpeed, install it with: pip install deepspeed")
+        
         self.load_model()
 
         self._last_global_step_saved = -1
@@ -346,14 +359,23 @@ class EncoderDecoder(LightningModule):
                 model_fname = os.path.join(self.config.exp_dir, f"global_step{self.global_step}.pt")
 
             if self.use_deepspeed or self.use_ddp:
-                distributed_save_path = os.path.join(self.config.exp_dir, "saved_model")
-                self.trainer.model.save_checkpoint(distributed_save_path)
-                torch.distributed.barrier()
-                if dist.get_rank() == 0:
-                    trainable_states = zero_to_fp32.get_fp32_state_dict_from_zero_checkpoint(distributed_save_path)
-                    prefix_length = len("module.model.")
-                    trainable_states = {k[prefix_length:]: v for k, v in trainable_states.items()}
+                if not DEEPSPEED_AVAILABLE:
+                    print("WARNING: Cannot save DeepSpeed checkpoint without DeepSpeed installed. Saving as regular checkpoint instead.")
+                    trainable_states = {
+                        param_name: param_weight.cpu()
+                        for param_name, param_weight in self.model.state_dict().items()
+                        if param_name in self.trainable_param_names
+                    }
                     torch.save(trainable_states, model_fname)
+                else:
+                    distributed_save_path = os.path.join(self.config.exp_dir, "saved_model")
+                    self.trainer.model.save_checkpoint(distributed_save_path)
+                    torch.distributed.barrier()
+                    if dist.get_rank() == 0:
+                        trainable_states = zero_to_fp32.get_fp32_state_dict_from_zero_checkpoint(distributed_save_path)
+                        prefix_length = len("module.model.")
+                        trainable_states = {k[prefix_length:]: v for k, v in trainable_states.items()}
+                        torch.save(trainable_states, model_fname)
             else:
                 trainable_states = {
                     param_name: param_weight.cpu()

@@ -15,6 +15,9 @@ import re
 import pandas as pd
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score, precision_score, recall_score
 
+# Import centralized path configuration
+from src.path_config import DATASETS_OFFLINE, get_template_path
+
 templates_for_custom_tasks = {
     'income': '50000_dollars',
     'car': 'rate_decision',
@@ -79,7 +82,8 @@ def get_dataset_reader(config):
     return dataset_class(config)
 
 
-DATASETS_OFFLINE = "/work/TabLLM/datasets_serialized"
+# DATASETS_OFFLINE is now imported from src.path_config
+# To change the root path, edit ROOT_DIR in src/path_config.py
 MAX_EXAMPLES_PER_DATASET = 500_000
 TASK_BLACKLIST = [
     # Tasks which often tokenize to > 1024 tokens currently
@@ -237,7 +241,8 @@ class CustomCategoricalReader(BaseDatasetReader):
     def get_template(self, template_idx):
         # Add custom template
         task = self.config.dataset.split('_')[0].lower()
-        yaml_dict = yaml.load(open('/work/TabLLM/templates/templates_' + task + '.yaml', "r"),
+        template_path = get_template_path(task)
+        yaml_dict = yaml.load(open(template_path, "r"),
                               Loader=yaml.FullLoader)
         prompts = yaml_dict['templates']
 

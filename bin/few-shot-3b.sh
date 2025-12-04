@@ -4,7 +4,7 @@ do
     do
         for seed in 42 1024 0 1 32
         do
-            python -m src.pl_train -c t03b.json+${dataset}.json+${method}.json -k exp_name=t03b_${dataset}_seed${seed}_${method} few_shot_random_seed=${seed} seed=${seed}
+            python -m src.pl_train -c t03b.json+${dataset}.json+${method}.json -k exp_name=t03b_${dataset}_seed${seed}_${method} few_shot_random_seed=${seed} seed=${seed} compute_strategy="none"
         done
     done
 done
