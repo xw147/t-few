@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import functools
 from pytorch_lightning import LightningDataModule
 
 from src.data.dataset_readers import is_custom_task
@@ -181,39 +182,41 @@ class PretrainDatasetWithTemplate(torch.utils.data.dataset.Dataset):
         return input_ids, target_ids
 
 
+def _collate_batch(batch, pad_token_id, pretrain):
+    """Top-level collate_fn so it can be pickled by DataLoader workers."""
+    if not pretrain:
+        input_ids, target_ids, answer_choices_ids, labels, idx = zip(*batch)
+    else:
+        input_ids, target_ids = zip(*batch)
+
+    input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=pad_token_id)
+    target_ids = torch.nn.utils.rnn.pad_sequence(target_ids, batch_first=True, padding_value=pad_token_id)
+    output_batch = {
+        "input_ids": input_ids,
+        "target_ids": target_ids,
+    }
+
+    if not pretrain:
+        flat_answer_choice_ids = [choice for list_choices in answer_choices_ids for choice in list_choices]
+        num_choice = [len(list_choices) for list_choices in answer_choices_ids]
+        if max(num_choice) != min(num_choice):
+            raise NotImplementedError("The collate_fn is not implmented for variable number of choices")
+        flat_answer_choices_ids = torch.nn.utils.rnn.pad_sequence(
+            flat_answer_choice_ids, batch_first=True, padding_value=pad_token_id
+        )
+        answer_choices_ids = flat_answer_choices_ids.view(len(answer_choices_ids), max(num_choice), -1).contiguous()
+        labels = torch.cat(labels)
+        idx = torch.cat(idx)
+        output_batch.update(
+            {
+                "answer_choices_ids": answer_choices_ids,
+                "labels": labels,
+                "idx": idx,
+            }
+        )
+
+    return output_batch
+
+
 def create_collate_fn(pad_token_id, pretrain):
-    def collate_fn(batch):
-        if not pretrain:
-            input_ids, target_ids, answer_choices_ids, labels, idx = zip(*batch)
-        else:
-            input_ids, target_ids = zip(*batch)
-
-        input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=pad_token_id)
-        target_ids = torch.nn.utils.rnn.pad_sequence(target_ids, batch_first=True, padding_value=pad_token_id)
-        output_batch = {
-            "input_ids": input_ids,
-            "target_ids": target_ids,
-        }
-
-        if not pretrain:
-            flat_answer_choice_ids = [choice for list_choices in answer_choices_ids for choice in list_choices]
-            num_choice = [len(list_choices) for list_choices in answer_choices_ids]
-            if max(num_choice) != min(num_choice):
-                raise NotImplementedError("The collate_fn is not implmented for variable number of choices")
-            flat_answer_choices_ids = torch.nn.utils.rnn.pad_sequence(
-                flat_answer_choice_ids, batch_first=True, padding_value=pad_token_id
-            )
-            answer_choices_ids = flat_answer_choices_ids.view(len(answer_choices_ids), max(num_choice), -1).contiguous()
-            labels = torch.cat(labels)
-            idx = torch.cat(idx)
-            output_batch.update(
-                {
-                    "answer_choices_ids": answer_choices_ids,
-                    "labels": labels,
-                    "idx": idx,
-                }
-            )
-
-        return output_batch
-
-    return collate_fn
+    return functools.partial(_collate_batch, pad_token_id=pad_token_id, pretrain=pretrain)

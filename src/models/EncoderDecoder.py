@@ -253,6 +253,10 @@ class EncoderDecoder(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         batch_output = self.predict(batch)
+        # Store outputs for on_validation_epoch_end (PyTorch Lightning 2.0+)
+        if not hasattr(self, '_validation_outputs'):
+            self._validation_outputs = []
+        self._validation_outputs.append(batch_output)
         return batch_output
 
     def validation_test_shared_preparation(self, outputs, output_file):
@@ -296,7 +300,15 @@ class EncoderDecoder(LightningModule):
 
         return metrics
 
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
+        """PyTorch Lightning 2.0+ hook replacing validation_epoch_end"""
+        # Get stored validation outputs from instance attribute
+        if not hasattr(self, '_validation_outputs') or not self._validation_outputs:
+            return
+        
+        outputs = self._validation_outputs
+        self._validation_outputs = []  # Reset for next epoch
+        
         metrics = self.validation_test_shared_preparation(outputs, self.config.dev_score_file)
 
         # Consider best validation performance based on AUC
@@ -309,13 +321,24 @@ class EncoderDecoder(LightningModule):
             print(f"Stored new best metric {relevant_metrics} with values {eval_model_metric} at step {self.global_step}.")
 
         self.save_model()
-        return metrics
 
     def test_step(self, batch, batch_idx):
         batch_output = self.predict(batch)
+        # Store outputs for on_test_epoch_end (PyTorch Lightning 2.0+)
+        if not hasattr(self, '_test_outputs'):
+            self._test_outputs = []
+        self._test_outputs.append(batch_output)
         return batch_output
 
-    def test_epoch_end(self, outputs):
+    def on_test_epoch_end(self):
+        """PyTorch Lightning 2.0+ hook replacing test_epoch_end"""
+        # Get stored test outputs from instance attribute
+        if not hasattr(self, '_test_outputs') or not self._test_outputs:
+            return
+        
+        outputs = self._test_outputs
+        self._test_outputs = []  # Reset for next epoch
+        
         metrics = self.validation_test_shared_preparation(outputs, self.config.test_score_file)
         return metrics
 
@@ -386,6 +409,6 @@ class EncoderDecoder(LightningModule):
 
             self._last_global_step_saved = self.global_step
 
-    def on_before_optimizer_step(self, optimizer, optimizer_idx):
+    def on_before_optimizer_step(self, optimizer, optimizer_idx=None):
         if self.config.fishmask_mode is not None:
             fishmask_plugin_on_optimizer_step(self)
