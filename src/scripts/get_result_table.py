@@ -18,38 +18,64 @@ def make_result_table(args):
         def read_last_eval(fname):
             with open(fname) as f:
                 e = json.loads(f.readlines()[-1])
-            return e["AUC"]
+            return e
 
         acc_by_dataset = defaultdict(lambda: list())
 
         def parse_expname(fname):
-            elements = fname.split("/")[-2].split("_")
-            return tuple(elements[:3] + ["_".join(elements[3:])])
+            expname = fname.split("/")[-2]
+            parts = expname.split("_")
+            seed_idx = numshot_idx = None
+            for i, part in enumerate(parts):
+                if part.startswith("seed"):
+                    seed_idx = i
+                if part.startswith("numshot"):
+                    numshot_idx = i
+            if seed_idx is None:
+                seed_idx = len(parts) - 1
+            if numshot_idx is None:
+                numshot_idx = seed_idx
+            model = parts[0]
+            dataset = "_".join(parts[1:numshot_idx])
+            numshot = parts[numshot_idx].replace("numshot", "") or "unknown"
+            return model, dataset, numshot, parts[seed_idx], "_".join(parts[seed_idx + 1 :])
 
         for fname in all_files:
             result = read_last_eval(fname)
-            model, dataset, seed, spec = parse_expname(fname)
-            acc_by_dataset[dataset].append(result)
+            model, dataset, numshot, seed, spec = parse_expname(fname)
+            if args.metric not in result:
+                continue
+            acc_by_dataset[(dataset, numshot)].append(result[args.metric])
 
         def result_str(acc_list):
             if len(acc_list) > 1:
-                return f"{mean(acc_list) * 100:.2f} ({std(acc_list) * 100:.2f})"
+                return f"{mean(acc_list):.2f} ({std(acc_list):.2f})"
             else:
-                return f"{acc_list[0] * 100:.2f}"
+                return f"{acc_list[0]:.2f}"
 
-        outputs = []
-        for dataset in datasets:
-            acc_list = acc_by_dataset[dataset]
-            outputs.append(result_str(acc_list))
+        def numshot_key(x):
+            try:
+                return int(x)
+            except:
+                return x
+        
+        numshot_values = sorted(set(k[1] for k in acc_by_dataset.keys()), key=numshot_key)
+        dataset_keys = [(d, ns) for d in datasets for ns in numshot_values]
+        outputs = [result_str(acc_by_dataset.get(k, [])) if acc_by_dataset.get(k) else "NA" for k in dataset_keys]
+        print(", ".join([f"{ds}_numshot{ns}: {val}" for (ds, ns), val in zip(dataset_keys, outputs)]))
+        return ",".join(outputs), dataset_keys
 
-        print(", ".join([f"{dataset}: {value}" for dataset, value in zip(datasets, outputs)]))
-        return ",".join(outputs)
-
-    csv_lines = ["template," + (",".join(args.datasets))]
+    header = ["template"]
+    all_rows = []
     for exp_name_template in args.exp_name_templates:
-        csv_lines.append(f"{exp_name_template}," + collect_exp_scores(exp_name_template, args.datasets))
+        row_vals, dataset_keys = collect_exp_scores(exp_name_template, args.datasets)
+        if len(header) == 1:
+            header.extend([f"{ds}_numshot{ns}" for ds, ns in dataset_keys])
+        all_rows.append(f"{exp_name_template}," + row_vals)
+    
+    csv_lines = [",".join(header)] + all_rows
 
-    output_fname = os.path.join(os.getenv("OUTPUT_PATH", default="exp_out"), "summary.csv")
+    output_fname = os.path.join(os.getenv("OUTPUT_PATH", default="exp_out"), f"summary_{args.metric}.csv")
     with open(output_fname, "w") as f:
         for line in csv_lines:
             f.write(line + "\n")
@@ -61,6 +87,9 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--exp_name_templates", default="t03b_*_finetune", required=True)
     parser.add_argument(
         "-d", "--datasets", default="copa,h-swag,storycloze,winogrande,wsc,wic,rte,cb,anli-r1,anli-r2,anli-r3"
+    )
+    parser.add_argument(
+        "-m", "--metric", default="AUC", help="Metric to report (AUC, accuracy, macro_f1, micro_f1, PR)"
     )
     args = parser.parse_args()
     args.exp_name_templates = args.exp_name_templates.split(",")

@@ -44,31 +44,37 @@ class FinetuneDataModule(LightningDataModule):
             print(f"Test size {len(self.test_dataset)}")
 
     def train_dataloader(self):
+        num_workers = min([self.config.batch_size, self.config.num_workers])
         return torch.utils.data.DataLoader(
             self.train_dataset,
             batch_size=self.config.batch_size,
             shuffle=True,
             collate_fn=create_collate_fn(self.tokenizer.pad_token_id, pretrain=False),
             drop_last=True,
-            num_workers=min([self.config.batch_size, self.config.num_workers]),
+            num_workers=num_workers,
+            persistent_workers=True if num_workers > 0 else False,
         )
 
     def val_dataloader(self):
+        num_workers = min([self.config.eval_batch_size, self.config.num_workers])
         return torch.utils.data.DataLoader(
             self.dev_dataset,
             batch_size=self.config.eval_batch_size,
             shuffle=False,
             collate_fn=create_collate_fn(self.tokenizer.pad_token_id, pretrain=False),
-            num_workers=min([self.config.eval_batch_size, self.config.num_workers]),
+            num_workers=num_workers,
+            persistent_workers=True if num_workers > 0 else False,
         )
 
     def test_dataloader(self):
+        num_workers = min([self.config.eval_batch_size, self.config.num_workers])
         return torch.utils.data.DataLoader(
             self.test_dataset,
             batch_size=self.config.eval_batch_size,
             shuffle=False,
             collate_fn=create_collate_fn(self.tokenizer.pad_token_id, pretrain=False),
-            num_workers=min([self.config.eval_batch_size, self.config.num_workers]),
+            num_workers=num_workers,
+            persistent_workers=True if num_workers > 0 else False,
         )
 
 
@@ -143,13 +149,15 @@ class PretrainDataModule(LightningDataModule):
         self.train_dataset = torch.utils.data.ConcatDataset(self.train_datasets_withtemplate)
 
     def train_dataloader(self):
+        num_workers = min([self.config.batch_size, self.config.num_workers])
         return torch.utils.data.DataLoader(
             self.train_dataset,
             batch_size=self.config.batch_size,
             shuffle=True,
             collate_fn=create_collate_fn(self.tokenizer.pad_token_id, pretrain=True),
             drop_last=True,
-            num_workers=min([self.config.batch_size, self.config.num_workers]),
+            num_workers=num_workers,
+            persistent_workers=True if num_workers > 0 else False,
         )
 
 

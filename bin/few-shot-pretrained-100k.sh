@@ -33,12 +33,12 @@ for model in 't03b' # 't011b'
 do
   # For zero-shot set to '0', for all to 'all'
   # for num_shot in 4 8 16 32 64 128 256 512
-  for num_shot in 4 8 
+  for num_shot in 4 8 16 32 64
   do
     # Datasets: car, income, heart, diabetes, jungle, bank, blood, calhousing, creditg, jungle
     # Run all serializations for car
     # for dataset in car car_list car_list_permuted car_list_shuffled car_list_values car_gpt car_t0 car_ttt ico
-    for dataset in ico_list
+    for dataset in creditg
     do
       # Zero-shot
       # eval_before_training=True
@@ -51,6 +51,7 @@ do
       # Production versions (uncomment below):
       num_steps=$(( 30 * ($num_shot / $train_batch_size)))
       eval_epoch_interval=30
+
 
       # For all run
       if ! [[ $num_shot =~ $re ]]; then
@@ -84,7 +85,7 @@ do
       fi
 
       # for seed in 42 1024 0 1 32
-      for seed in 42 1024 0 1 32
+      for seed in 42 1024 0
       do
         # macOS setup: Use local paths, no CUDA_VISIBLE_DEVICES
         CONFIG_PATH=/Users/work/t-few/configs HF_HOME=/Users/work/.cache/huggingface \

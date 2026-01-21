@@ -311,9 +311,8 @@ class EncoderDecoder(LightningModule):
         
         metrics = self.validation_test_shared_preparation(outputs, self.config.dev_score_file)
 
-        # Consider best validation performance based on AUC
-        ################### may need to change for PRAUC ###################
-        relevant_metrics = ['AUC']
+        # Consider best validation performance based on PR (Precision-Recall AUC)
+        relevant_metrics = ['PR']
         eval_model_metric = [metrics.get(m, -1) for m in relevant_metrics]
         if eval_model_metric > self.best_eval_model_metric:
             self.best_eval_model_metric = eval_model_metric

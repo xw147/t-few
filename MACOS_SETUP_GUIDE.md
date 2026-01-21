@@ -184,13 +184,6 @@ All installed packages are Python 3.10 compatible:
 - **pyyaml** >= 6.0
 - **psutil** >= 5.9.0
 
-### 5. Optional: Install SAID Dependencies
-
-If you plan to run SAID experiments:
-```bash
-python src/intrinsic_said_setup.py develop
-```
-
 ---
 
 ## Running Experiments
