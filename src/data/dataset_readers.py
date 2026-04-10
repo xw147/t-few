@@ -13,7 +13,7 @@ import csv
 from typing import Dict, List, Optional, Tuple
 import re
 import pandas as pd
-from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score, precision_score, recall_score
+from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score, precision_score, recall_score, confusion_matrix
 
 # Import centralized path configuration
 from src.path_config import DATASETS_OFFLINE, get_template_path
@@ -332,7 +332,27 @@ class CustomCategoricalReader(BaseDatasetReader):
 
         micro_f1 = f1_score(accumulated['label'], accumulated['prediction'], average='micro')
         macro_f1 = f1_score(accumulated['label'], accumulated['prediction'], average='macro')
-        metrics = {'AUC': roc_auc, 'PR': pr_auc, 'micro_f1': micro_f1, 'macro_f1': macro_f1,  **metrics}
+
+        # Sensitivity (recall), specificity, and precision
+        if binary:
+            sensitivity = recall_score(accumulated['label'], accumulated['prediction'], average='binary')
+            prec = precision_score(accumulated['label'], accumulated['prediction'], average='binary')
+            cm = confusion_matrix(accumulated['label'], accumulated['prediction'])
+            tn, fp, fn, tp = cm.ravel()
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+        else:
+            sensitivity = recall_score(accumulated['label'], accumulated['prediction'], average='macro')
+            prec = precision_score(accumulated['label'], accumulated['prediction'], average='macro')
+            cm = confusion_matrix(accumulated['label'], accumulated['prediction'])
+            specificity_per_class = []
+            for i in range(cm.shape[0]):
+                tn_i = cm.sum() - cm[i, :].sum() - cm[:, i].sum() + cm[i, i]
+                fp_i = cm[:, i].sum() - cm[i, i]
+                specificity_per_class.append(tn_i / (tn_i + fp_i) if (tn_i + fp_i) > 0 else 0.0)
+            specificity = float(np.mean(specificity_per_class))
+
+        metrics = {'AUC': roc_auc, 'PR': pr_auc, 'micro_f1': micro_f1, 'macro_f1': macro_f1,
+                   'sensitivity': sensitivity, 'specificity': specificity, 'precision': prec, **metrics}
         # Also record number of instances evaluated
         metrics = {**metrics, 'num': len(accumulated['prediction'])}
 
@@ -785,11 +805,16 @@ class ICOCategoricalReader(CustomCategoricalReader):
             precision = precision_score(accumulated['label'], accumulated['prediction'], average='binary')
             recall = recall_score(accumulated['label'], accumulated['prediction'], average='binary')
             f1_binary = f1_score(accumulated['label'], accumulated['prediction'], average='binary')
+            cm = confusion_matrix(accumulated['label'], accumulated['prediction'])
+            tn, fp, fn, tp = cm.ravel()
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
             
             metrics.update({
                 'f1': f1_binary,
                 'precision': precision, 
                 'recall': recall,
+                'sensitivity': recall,
+                'specificity': specificity,
                 'num': len(accumulated['prediction'])
             })
         else:
@@ -797,11 +822,20 @@ class ICOCategoricalReader(CustomCategoricalReader):
             precision_macro = precision_score(accumulated['label'], accumulated['prediction'], average='macro')
             recall_macro = recall_score(accumulated['label'], accumulated['prediction'], average='macro')
             f1_macro = f1_score(accumulated['label'], accumulated['prediction'], average='macro')
+            cm = confusion_matrix(accumulated['label'], accumulated['prediction'])
+            specificity_per_class = []
+            for i in range(cm.shape[0]):
+                tn_i = cm.sum() - cm[i, :].sum() - cm[:, i].sum() + cm[i, i]
+                fp_i = cm[:, i].sum() - cm[i, i]
+                specificity_per_class.append(tn_i / (tn_i + fp_i) if (tn_i + fp_i) > 0 else 0.0)
+            specificity = float(np.mean(specificity_per_class))
             
             metrics.update({
                 'f1': f1_macro,
                 'precision': precision_macro,
                 'recall': recall_macro,
+                'sensitivity': recall_macro,
+                'specificity': specificity,
                 'num': len(accumulated['prediction'])
             })
         

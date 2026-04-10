@@ -89,7 +89,7 @@ if __name__ == "__main__":
         "-d", "--datasets", default="copa,h-swag,storycloze,winogrande,wsc,wic,rte,cb,anli-r1,anli-r2,anli-r3"
     )
     parser.add_argument(
-        "-m", "--metric", default="AUC", help="Metric to report (AUC, accuracy, macro_f1, micro_f1, PR)"
+        "-m", "--metric", default="AUC", help="Metric to report (AUC, accuracy, macro_f1, micro_f1, PR, sensitivity, specificity, precision)"
     )
     args = parser.parse_args()
     args.exp_name_templates = args.exp_name_templates.split(",")

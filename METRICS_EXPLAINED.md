@@ -15,6 +15,9 @@ All metrics are computed in `src/data/dataset_readers.py` (specifically in `Cust
 | **micro_f1** | Micro-averaged F1 score (aggregates contributions of all classes) | `sklearn.metrics.f1_score` with `average='micro'` |
 | **macro_f1** | Macro-averaged F1 score (unweighted mean of per-class F1) | `sklearn.metrics.f1_score` with `average='macro'` |
 | **accuracy** | Simple classification accuracy (correct predictions / total examples) | Computed directly from predictions |
+| **sensitivity** | True positive rate (recall) — TP / (TP + FN). For multi-class: macro-averaged per-class recall | `sklearn.metrics.recall_score` |
+| **specificity** | True negative rate — TN / (TN + FP). For multi-class: macro-averaged per-class specificity | Computed from `sklearn.metrics.confusion_matrix` |
+| **precision** | Positive predictive value — TP / (TP + FP). For multi-class: macro-averaged per-class precision | `sklearn.metrics.precision_score` |
 
 ### Metadata Metrics
 
@@ -128,7 +131,7 @@ python -m src.scripts.get_result_table \
 python -m src.scripts.get_result_table \
   -e "t03b_ico_list_*_ia3_pretrained100k" \
   -d "ico_list" \
-  -m "AUC"
+  -m "PR"
 ```
 
 **Multiple datasets with accuracy metric:**
