@@ -27,6 +27,7 @@ ROOT_DIR = "/Users/work"  # <-- EDIT THIS LINE for your system
 TABLLM_ROOT = os.path.join(ROOT_DIR, "TabLLM")
 DATASETS_OFFLINE = os.path.join(TABLLM_ROOT, "datasets_serialized")
 TEMPLATES_DIR = os.path.join(TABLLM_ROOT, "templates")
+ICO_CONFIG_PATH = os.path.join(TABLLM_ROOT, "ico_config.py")
 
 # Helper function to get template file path
 def get_template_path(task_name):

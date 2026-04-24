@@ -129,10 +129,15 @@ python -m src.scripts.get_result_table \
 **Single dataset with AUC metric:**
 ```bash
 python -m src.scripts.get_result_table \
-  -e "t03b_ico_list_*_ia3_pretrained100k" \
-  -d "ico_list" \
-  -m "PR"
+  -e "t03b_ico_*_ia3_pretrained100k" \
+  -d "ico" \
+  -m "micro_f1"
 ```
+
+python -m src.scripts.get_result_table \
+  -e "t03b_ico_all_numshot4_*_ia3_pretrained100k" \
+  -d "ico_all" \
+  -m "micro_f1"
 
 **Multiple datasets with accuracy metric:**
 ```bash

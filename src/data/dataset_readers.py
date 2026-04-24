@@ -16,7 +16,7 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score, precision_score, recall_score, confusion_matrix
 
 # Import centralized path configuration
-from src.path_config import DATASETS_OFFLINE, get_template_path
+from src.path_config import DATASETS_OFFLINE, get_template_path, ICO_CONFIG_PATH
 
 templates_for_custom_tasks = {
     'income': '50000_dollars',
@@ -73,11 +73,10 @@ def get_dataset_reader(config):
     else:
         # Check if it's ICO dataset
         task = config.dataset.split('_')[0].lower()
-        # if task == 'ico':
-        #     dataset_class = ICOCategoricalReader  # Use ICO-specific reader
-        # else:
-        #     dataset_class = CustomCategoricalReader  # Use default reader
-        dataset_class = CustomCategoricalReader
+        if task == 'ico':
+            dataset_class = ICOCategoricalReader
+        else:
+            dataset_class = CustomCategoricalReader
     
     return dataset_class(config)
 
@@ -790,53 +789,81 @@ class RaftReader(object):
         return {"accuracy": accuracy}
 
 
+def _load_ico_label_strategies():
+    """Load ICO_LABEL_STRATEGIES from TabLLM/ico_config.py via its filesystem path."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("tabllm_ico_config", ICO_CONFIG_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.ICO_LABEL_STRATEGIES
+
+
 class ICOCategoricalReader(CustomCategoricalReader):
-    """Custom reader for ICO dataset with F1, Precision, Recall metrics"""
-    
-    def compute_metric(self, accumulated):
-        # Get base metrics (accuracy)
-        metrics = BaseDatasetReader.compute_metric(self, accumulated)
-        
-        # ICO-specific metrics: F1, Precision, Recall
-        binary = all([True if l in [0, 1] else False for l in accumulated['label']])
-        
-        if binary:
-            # Binary classification metrics
-            precision = precision_score(accumulated['label'], accumulated['prediction'], average='binary')
-            recall = recall_score(accumulated['label'], accumulated['prediction'], average='binary')
-            f1_binary = f1_score(accumulated['label'], accumulated['prediction'], average='binary')
-            cm = confusion_matrix(accumulated['label'], accumulated['prediction'])
-            tn, fp, fn, tp = cm.ravel()
-            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-            
-            metrics.update({
-                'f1': f1_binary,
-                'precision': precision, 
-                'recall': recall,
-                'sensitivity': recall,
-                'specificity': specificity,
-                'num': len(accumulated['prediction'])
-            })
+    """Custom reader for ICO dataset with label strategy support and extended metrics."""
+
+    def __init__(self, config):
+        self._ico_label_strategies = _load_ico_label_strategies()
+        super().__init__(config)
+
+    def read_orig_dataset(self, split):
+        """Load ICO Arrow dataset and derive binary labels via ico_label_strategy."""
+        strategy_name = getattr(self.config, 'ico_label_strategy', 'all')
+        if strategy_name not in self._ico_label_strategies:
+            raise ValueError(
+                f"Unknown ico_label_strategy '{strategy_name}'. "
+                f"Choose from: {list(self._ico_label_strategies.keys())}"
+            )
+        strategy = self._ico_label_strategies[strategy_name]
+
+        # Load raw Arrow dataset (fields: note, riskLevel, name, token_symbol)
+        orig_data = load_from_disk(os.path.join(DATASETS_OFFLINE, self.dataset_stash[0]))
+
+        # Filter out rows whose riskLevel is in the strategy's 'drop' list
+        if strategy['drop']:
+            drop_set = set(strategy['drop'])
+            orig_data = orig_data.filter(lambda ex: ex['riskLevel'] not in drop_set)
+
+        # Derive the binary label from riskLevel according to the strategy.
+        # 'label' is the single ground-truth field used by the entire t-few pipeline
+        # (data_module.py, _sample_few_shot_data, compute_metric, and the Jinja template).
+        positive_set = set(strategy['positive'])
+        orig_data = orig_data.map(lambda ex: {'label': int(ex['riskLevel'] in positive_set)})
+
+        # Deterministic 80/10/10 train/val split (test kept empty, same as CustomCategoricalReader)
+        data = orig_data.train_test_split(test_size=0.20, seed=self.config.seed)
+        data2 = data['test'].train_test_split(test_size=0.50, seed=self.config.seed)
+        dataset_dict = DatasetDict({
+            'train': data['train'],
+            'validation': concatenate_datasets([data2['train'], data2['test']]),
+            'test': Dataset.from_dict({'note': [], 'label': []}),
+        })
+        orig_data = dataset_dict[split]
+
+        if 'idx' not in orig_data.column_names:
+            orig_data = orig_data.add_column(name='idx', column=range(0, orig_data.num_rows))
+
+        return orig_data
+
+    def _get_strategy_name(self):
+        return getattr(self.config, 'ico_label_strategy', 'all')
+
+    def read_few_shot_dataset(self):
+        """Override to include ico_label_strategy in the cache path to avoid stale data."""
+        strategy_name = self._get_strategy_name()
+        file_dir = os.path.join("data", "few_shot", self.config.dataset, f"{self.config.num_shot}_shot")
+        if not os.path.exists(file_dir):
+            os.makedirs(file_dir)
+        file_path = os.path.join(
+            file_dir, f"{self.config.few_shot_random_seed}_seed_{strategy_name}.jsonl"
+        )
+        if os.path.exists(file_path):
+            with open(file_path, "r") as fin:
+                data = [json.loads(line.strip("\n")) for line in fin.readlines()]
+            return data
         else:
-            # Multi-class metrics (fallback)
-            precision_macro = precision_score(accumulated['label'], accumulated['prediction'], average='macro')
-            recall_macro = recall_score(accumulated['label'], accumulated['prediction'], average='macro')
-            f1_macro = f1_score(accumulated['label'], accumulated['prediction'], average='macro')
-            cm = confusion_matrix(accumulated['label'], accumulated['prediction'])
-            specificity_per_class = []
-            for i in range(cm.shape[0]):
-                tn_i = cm.sum() - cm[i, :].sum() - cm[:, i].sum() + cm[i, i]
-                fp_i = cm[:, i].sum() - cm[i, i]
-                specificity_per_class.append(tn_i / (tn_i + fp_i) if (tn_i + fp_i) > 0 else 0.0)
-            specificity = float(np.mean(specificity_per_class))
-            
-            metrics.update({
-                'f1': f1_macro,
-                'precision': precision_macro,
-                'recall': recall_macro,
-                'sensitivity': recall_macro,
-                'specificity': specificity,
-                'num': len(accumulated['prediction'])
-            })
-        
-        return metrics
+            orig_data = self.read_orig_dataset("train")
+            selected_data = self._sample_few_shot_data(orig_data)
+            with open(file_path, "w+") as fout:
+                for example in selected_data:
+                    fout.write(json.dumps(example) + "\n")
+            return selected_data
