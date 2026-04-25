@@ -33,7 +33,7 @@ for model in 't03b' # 't011b'
 do
   # For zero-shot set to '0', for all to 'all'
   # for num_shot in 4 8 16 32 64 128 256 512
-  for num_shot in 4
+  for num_shot in 0
   do
     # Datasets: car, income, heart, diabetes, jungle, bank, blood, calhousing, creditg, jungle
     # Run all serializations for car
@@ -85,7 +85,7 @@ do
       fi
 
       # for seed in 42 1024 0 1 32
-      for seed in 42
+      for seed in 42 1024 0 1 32
       do
         # ICO label strategies: all (default) | high_only | low_only
         # Each strategy filters rows and redefines the positive class, so N and
