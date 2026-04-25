@@ -23,6 +23,16 @@ ROOT_DIR = "/Users/work"  # <-- EDIT THIS LINE for your system
 # DERIVED PATHS (Don't modify these unless you have custom paths)
 # ============================================================================
 
+# T-Few project root (parent of src/)
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(_THIS_DIR)
+
+# Experiment output folder (stores per-run results such as dev_scores.json)
+EXP_OUTPUT_PATH = os.path.join(PROJECT_ROOT, "exp_out/4627_samples_old_labelling")
+
+# Summary output folder (stores aggregated CSV result tables)
+SUMMARY_OUTPUT_PATH = os.path.join(PROJECT_ROOT, "exp_out/4627_samples_old_labelling")
+
 # TabLLM related paths
 TABLLM_ROOT = os.path.join(ROOT_DIR, "TabLLM")
 DATASETS_OFFLINE = os.path.join(TABLLM_ROOT, "datasets_serialized")
@@ -45,6 +55,8 @@ def validate_paths(verbose=False):
     """
     paths_to_check = {
         "ROOT_DIR": ROOT_DIR,
+        "EXP_OUTPUT_PATH": EXP_OUTPUT_PATH,
+        "SUMMARY_OUTPUT_PATH": SUMMARY_OUTPUT_PATH,
         "TABLLM_ROOT": TABLLM_ROOT,
         "DATASETS_OFFLINE": DATASETS_OFFLINE,
         "TEMPLATES_DIR": TEMPLATES_DIR,

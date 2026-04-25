@@ -329,19 +329,20 @@ class CustomCategoricalReader(BaseDatasetReader):
             # Abuse pr for AUC ovo here
             pr_auc = roc_auc_score(accumulated['label'], probs, multi_class='ovo', average='macro')
 
-        micro_f1 = f1_score(accumulated['label'], accumulated['prediction'], average='micro')
         macro_f1 = f1_score(accumulated['label'], accumulated['prediction'], average='macro')
 
-        # Sensitivity (recall), specificity, and precision
+        # Sensitivity (recall), specificity, precision, and f1_binary
         if binary:
             sensitivity = recall_score(accumulated['label'], accumulated['prediction'], average='binary')
             prec = precision_score(accumulated['label'], accumulated['prediction'], average='binary')
+            f1_binary = f1_score(accumulated['label'], accumulated['prediction'], average='binary')
             cm = confusion_matrix(accumulated['label'], accumulated['prediction'])
             tn, fp, fn, tp = cm.ravel()
             specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
         else:
             sensitivity = recall_score(accumulated['label'], accumulated['prediction'], average='macro')
             prec = precision_score(accumulated['label'], accumulated['prediction'], average='macro')
+            f1_binary = f1_score(accumulated['label'], accumulated['prediction'], average='macro')
             cm = confusion_matrix(accumulated['label'], accumulated['prediction'])
             specificity_per_class = []
             for i in range(cm.shape[0]):
@@ -350,7 +351,7 @@ class CustomCategoricalReader(BaseDatasetReader):
                 specificity_per_class.append(tn_i / (tn_i + fp_i) if (tn_i + fp_i) > 0 else 0.0)
             specificity = float(np.mean(specificity_per_class))
 
-        metrics = {'AUC': roc_auc, 'PR': pr_auc, 'micro_f1': micro_f1, 'macro_f1': macro_f1,
+        metrics = {'AUC': roc_auc, 'PR': pr_auc, 'macro_f1': macro_f1, 'f1_binary': f1_binary,
                    'sensitivity': sensitivity, 'specificity': specificity, 'precision': prec, **metrics}
         # Also record number of instances evaluated
         metrics = {**metrics, 'num': len(accumulated['prediction'])}

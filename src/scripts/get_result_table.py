@@ -4,14 +4,18 @@ from collections import defaultdict
 from scipy.stats import iqr
 from numpy import median, mean, std
 import os
+import sys
 import argparse
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from path_config import EXP_OUTPUT_PATH, SUMMARY_OUTPUT_PATH
 
 
 def make_result_table(args):
     def collect_exp_scores(exp_name_template, datasets):
         print("=" * 80)
         all_files = glob(
-            os.path.join(os.getenv("OUTPUT_PATH", default="exp_out"), exp_name_template, "dev_scores.json")
+            os.path.join(EXP_OUTPUT_PATH, exp_name_template, "dev_scores.json")
         )
         print(f"Find {len(all_files)} experiments fit into {exp_name_template}")
 
@@ -60,7 +64,12 @@ def make_result_table(args):
                 return x
         
         numshot_values = sorted(set(k[1] for k in acc_by_dataset.keys()), key=numshot_key)
-        dataset_keys = [(d, ns) for d in datasets for ns in numshot_values]
+        discovered_datasets = sorted(set(k[0] for k in acc_by_dataset.keys()))
+        # Fall back to discovered datasets if none of the requested ones match
+        active_datasets = [d for d in datasets if d in discovered_datasets]
+        if not active_datasets:
+            active_datasets = discovered_datasets
+        dataset_keys = [(d, ns) for d in active_datasets for ns in numshot_values]
         outputs = [result_str(acc_by_dataset.get(k, [])) if acc_by_dataset.get(k) else "NA" for k in dataset_keys]
         print(", ".join([f"{ds}_numshot{ns}: {val}" for (ds, ns), val in zip(dataset_keys, outputs)]))
         return ",".join(outputs), dataset_keys
@@ -75,7 +84,7 @@ def make_result_table(args):
     
     csv_lines = [",".join(header)] + all_rows
 
-    output_fname = os.path.join(os.getenv("OUTPUT_PATH", default="exp_out"), f"summary_{args.metric}.csv")
+    output_fname = os.path.join(SUMMARY_OUTPUT_PATH, f"summary_{args.metric}.csv")
     with open(output_fname, "w") as f:
         for line in csv_lines:
             f.write(line + "\n")
@@ -89,7 +98,7 @@ if __name__ == "__main__":
         "-d", "--datasets", default="copa,h-swag,storycloze,winogrande,wsc,wic,rte,cb,anli-r1,anli-r2,anli-r3"
     )
     parser.add_argument(
-        "-m", "--metric", default="AUC", help="Metric to report (AUC, accuracy, macro_f1, micro_f1, PR, sensitivity, specificity, precision)"
+        "-m", "--metric", default="AUC", help="Metric to report (AUC, accuracy, macro_f1, f1_binary, PR, sensitivity, specificity, precision)"
     )
     args = parser.parse_args()
     args.exp_name_templates = args.exp_name_templates.split(",")

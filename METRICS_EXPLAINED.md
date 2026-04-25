@@ -12,7 +12,7 @@ All metrics are computed in `src/data/dataset_readers.py` (specifically in `Cust
 |--------|-------------|--------|
 | **AUC** | ROC-AUC (Receiver Operating Characteristic - Area Under Curve) score | `sklearn.metrics.roc_auc_score` |
 | **PR** | Precision-Recall AUC | Custom `pr_auc_score()` function (line 345 in dataset_readers.py) |
-| **micro_f1** | Micro-averaged F1 score (aggregates contributions of all classes) | `sklearn.metrics.f1_score` with `average='micro'` |
+| **f1_binary** | F1 score for binary classification (positive class only) | `sklearn.metrics.f1_score` with `average='binary'` |
 | **macro_f1** | Macro-averaged F1 score (unweighted mean of per-class F1) | `sklearn.metrics.f1_score` with `average='macro'` |
 | **accuracy** | Simple classification accuracy (correct predictions / total examples) | Computed directly from predictions |
 | **sensitivity** | True positive rate (recall) — TP / (TP + FN). For multi-class: macro-averaged per-class recall | `sklearn.metrics.recall_score` |
@@ -107,6 +107,20 @@ The terminology is confusing, but functionally:
 
 After running experiments, use `src/scripts/get_result_table.py` to aggregate results across multiple runs into a CSV summary.
 
+### Path Configuration
+
+Experiment input and summary output paths are configured in `src/path_config.py` — no environment variables needed:
+
+```python
+# Experiment output folder (stores per-run results such as dev_scores.json)
+EXP_OUTPUT_PATH = os.path.join(PROJECT_ROOT, "exp_out")
+
+# Summary output folder (stores aggregated CSV result tables)
+SUMMARY_OUTPUT_PATH = os.path.join(PROJECT_ROOT, "exp_out")
+```
+
+Edit `EXP_OUTPUT_PATH` and `SUMMARY_OUTPUT_PATH` in `src/path_config.py` to point to different directories if needed.
+
 ### Usage
 
 ```bash
@@ -120,24 +134,28 @@ python -m src.scripts.get_result_table \
 
 | Parameter | Short | Description | Example |
 |-----------|-------|-------------|---------|
-| `--exp_name_templates` | `-e` | **Required.** Glob pattern(s) to match experiment directories. Use wildcards (`*`) to match multiple experiments. Multiple patterns can be comma-separated. | `"t03b_ico_list_*_ia3_pretrained100k"` |
+| `--exp_name_templates` | `-e` | **Required.** Glob pattern(s) to match experiment directories under `EXP_OUTPUT_PATH`. Use wildcards (`*`) to match multiple experiments. Multiple patterns can be comma-separated. | `"t03b_ico_list_*_ia3_pretrained100k"` |
 | `--datasets` | `-d` | Dataset name(s) to include in the summary. Must match the dataset names in your experiment directory names. Comma-separated for multiple datasets. | `"ico_list"` or `"copa,rte,wic"` |
-| `--metric` | `-m` | The metric to aggregate and report. Must match a key in `dev_scores.json`. Default: `AUC` | `"AUC"` or `"accuracy"` or `"macro_f1"` |
+| `--metric` | `-m` | The metric to aggregate and report. Must match a key in `dev_scores.json`. Default: `AUC` | `"AUC"` or `"accuracy"` or `"f1_binary"` |
+
+The summary CSV is written to `SUMMARY_OUTPUT_PATH/summary_<metric>.csv`.
 
 ### Example Usage
 
-**Single dataset with AUC metric:**
+**Single dataset with f1_binary metric:**
 ```bash
 python -m src.scripts.get_result_table \
   -e "t03b_ico_*_ia3_pretrained100k" \
   -d "ico" \
-  -m "micro_f1"
+  -m "f1_binary"
 ```
 
+```bash
 python -m src.scripts.get_result_table \
-  -e "t03b_ico_all_numshot4_*_ia3_pretrained100k" \
+  -e "t03b_ico_*_ia3_pretrained100k" \
   -d "ico_all" \
-  -m "micro_f1"
+  -m "sensitivity"
+```
 
 **Multiple datasets with accuracy metric:**
 ```bash
