@@ -1,0 +1,52 @@
+{
+  "4": {
+    "lr": "3e-4",
+    "steps_mult": 30,
+    "unlikely_loss": 0,
+    "avg_prauc": 0.3243,
+    "avg_f1_binary": 0.3326,
+    "num_seeds": 2
+  },
+  "8": {
+    "lr": "3e-4",
+    "steps_mult": 30,
+    "unlikely_loss": 0,
+    "avg_prauc": null,
+    "avg_f1_binary": null,
+    "num_seeds": 0,
+    "source": "inherited_from_4"
+  },
+  "16": {
+    "lr": "3e-4",
+    "steps_mult": 30,
+    "unlikely_loss": 0,
+    "avg_prauc": null,
+    "avg_f1_binary": null,
+    "num_seeds": 0,
+    "source": "inherited_from_4"
+  },
+  "32": {
+    "lr": "1e-3",
+    "steps_mult": 30,
+    "unlikely_loss": 0,
+    "avg_prauc": 0.3506,
+    "avg_f1_binary": 0.3726,
+    "num_seeds": 2
+  },
+  "64": {
+    "lr": "3e-4",
+    "steps_mult": 60,
+    "unlikely_loss": 0,
+    "avg_prauc": 0.3538,
+    "avg_f1_binary": 0.3767,
+    "num_seeds": 2
+  },
+  "128": {
+    "lr": "3e-4",
+    "steps_mult": 60,
+    "unlikely_loss": 0,
+    "avg_prauc": 0.3538,
+    "avg_f1_binary": 0.3885,
+    "num_seeds": 2
+  }
+}

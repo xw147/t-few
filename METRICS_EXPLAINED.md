@@ -127,7 +127,8 @@ Edit `EXP_OUTPUT_PATH` and `SUMMARY_OUTPUT_PATH` in `src/path_config.py` to poin
 python -m src.scripts.get_result_table \
   -e "EXPERIMENT_NAME_PATTERN" \
   -d "DATASET_NAMES" \
-  -m "METRIC_NAME"
+  [-m METRIC1 METRIC2 ...] \
+  [-o OUTPUT_FILENAME]
 ```
 
 ### Parameters
@@ -136,33 +137,48 @@ python -m src.scripts.get_result_table \
 |-----------|-------|-------------|---------|
 | `--exp_name_templates` | `-e` | **Required.** Glob pattern(s) to match experiment directories under `EXP_OUTPUT_PATH`. Use wildcards (`*`) to match multiple experiments. Multiple patterns can be comma-separated. | `"t03b_ico_list_*_ia3_pretrained100k"` |
 | `--datasets` | `-d` | Dataset name(s) to include in the summary. Must match the dataset names in your experiment directory names. Comma-separated for multiple datasets. | `"ico_list"` or `"copa,rte,wic"` |
-| `--metric` | `-m` | The metric to aggregate and report. Must match a key in `dev_scores.json`. Default: `AUC` | `"AUC"` or `"accuracy"` or `"f1_binary"` |
+| `--metrics` | `-m` | One or more metrics to include in the output. Omit to report **all** metrics. Choices: `precision recall f1_binary auprc specificity auroc macro_f1 accuracy` | `-m auroc f1_binary` |
+| `--output` | `-o` | Output CSV filename (saved under `SUMMARY_OUTPUT_PATH`). Default: `summary_all_metrics.csv` | `-o my_summary.csv` |
 
-The summary CSV is written to `SUMMARY_OUTPUT_PATH/summary_<metric>.csv`.
+### Output Format
+
+The summary CSV contains one section per metric, separated by a blank line:
+
+```
+# Metric: precision
+experiment,dataset,numshot4,numshot8,...
+model_ico_★_all,ico,0.30 (0.04),...
+
+# Metric: recall
+experiment,dataset,numshot4,numshot8,...
+model_ico_★_all,ico,0.60 (0.04),...
+```
+
+Values are formatted as `mean (std)` when multiple seeds are available, or `mean` for a single run.
 
 ### Example Usage
 
-**Single dataset with f1_binary metric:**
+**All metrics (default):**
+```bash
+python -m src.scripts.get_result_table \
+  -e "t03b_ico_*_ia3_pretrained100k" \
+  -d "ico"
+```
+
+**Specific metrics only:**
 ```bash
 python -m src.scripts.get_result_table \
   -e "t03b_ico_*_ia3_pretrained100k" \
   -d "ico" \
-  -m "f1_binary"
+  -m auroc auprc f1_binary macro_f1
 ```
 
+**Multiple experiment patterns with custom output file:**
 ```bash
 python -m src.scripts.get_result_table \
-  -e "t03b_ico_*_ia3_pretrained100k" \
-  -d "ico_all" \
-  -m "sensitivity"
-```
-
-**Multiple datasets with accuracy metric:**
-```bash
-python -m src.scripts.get_result_table \
-  -e "t03b_*_finetune" \
-  -d "copa,rte,wic,cb" \
-  -m "accuracy"
+  -e "t03b_ico_*_ia3_pretrained100k,lr_ico_*_all" \
+  -d "ico" \
+  -o comparison_summary.csv
 ```
 
 

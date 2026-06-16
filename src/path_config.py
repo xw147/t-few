@@ -28,10 +28,10 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(_THIS_DIR)
 
 # Experiment output folder (stores per-run results such as dev_scores.json)
-EXP_OUTPUT_PATH = os.path.join(PROJECT_ROOT, "exp_out/4627_samples_old_labelling")
+EXP_OUTPUT_PATH = os.path.join(PROJECT_ROOT, "exp_out")
 
 # Summary output folder (stores aggregated CSV result tables)
-SUMMARY_OUTPUT_PATH = os.path.join(PROJECT_ROOT, "exp_out/4627_samples_old_labelling")
+SUMMARY_OUTPUT_PATH = os.path.join(PROJECT_ROOT, "exp_out")
 
 # TabLLM related paths
 TABLLM_ROOT = os.path.join(ROOT_DIR, "TabLLM")
