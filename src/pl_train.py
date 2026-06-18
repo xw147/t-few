@@ -39,18 +39,36 @@ def main(config):
     model = EncoderDecoder(config, tokenizer, model, dataset_reader)
     logger = TensorBoardLogger(config.exp_dir, name="log")
 
-    # Handle PyTorch Lightning 2.x API changes
-    # In Lightning 2.x, 'gpus' is deprecated, use 'devices' and 'accelerator'
+    # Build Trainer kwargs in a way that works for both Lightning 1.x and 2.x.
     import pytorch_lightning as pl
     pl_version = int(pl.__version__.split('.')[0])
-    
+
     if pl_version >= 2:
-        # PyTorch Lightning 2.x API
+        # ---- PyTorch Lightning 2.x API --------------------------------------
+        # Pick the best available accelerator: CUDA (HPC) > MPS (mac) > CPU.
+        # (The original only chose mps/cpu, which silently fell back to CPU on
+        #  a CUDA cluster — i.e. it would NOT use the GPU.)
+        if torch.cuda.is_available():
+            accelerator = "gpu"
+        elif torch.backends.mps.is_available():
+            accelerator = "mps"
+        else:
+            accelerator = "cpu"
+
+        # Map compute_precision -> Lightning 2.x precision string.
+        # bf16 is strongly preferred for T5/T0 (fp16 tends to produce NaNs).
+        if config.compute_precision in (16, "16", "fp16"):
+            precision = "16-mixed"
+        elif config.compute_precision in ("bf16", "bfloat16"):
+            precision = "bf16-mixed"
+        else:
+            precision = "32-true"
+
         trainer_kwargs = {
             "enable_checkpointing": False,
-            "accelerator": "mps" if torch.backends.mps.is_available() else "cpu",
-            "devices": 1,  # Use 1 device (MPS or CPU)
-            "precision": "16-mixed" if config.compute_precision == 16 else 32,
+            "accelerator": accelerator,
+            "devices": 1,
+            "precision": precision,
             "strategy": config.compute_strategy if config.compute_strategy != "none" else "auto",
             "logger": logger,
             "log_every_n_steps": 4,
@@ -62,7 +80,8 @@ def main(config):
             "gradient_clip_val": config.grad_clip_norm,
         }
     else:
-        # PyTorch Lightning 1.x API (legacy)
+        # ---- PyTorch Lightning 1.x API (this is what you run: 1.9.5) ---------
+        # gpus=device_count() uses the GPU Slurm allocated (1 with --gres=gpu:1).
         trainer_kwargs = {
             "enable_checkpointing": False,
             "gpus": torch.cuda.device_count(),
@@ -78,7 +97,7 @@ def main(config):
             "accumulate_grad_batches": config.grad_accum_factor,
             "gradient_clip_val": config.grad_clip_norm,
         }
-    
+
     trainer = Trainer(**trainer_kwargs)
     trainer.fit(model, datamodule)
 
@@ -93,7 +112,9 @@ if __name__ == "__main__":
     print(f"Start experiment {config.exp_name}")
     # Setup config
     assert config.compute_strategy in ["none", "ddp"], \
-        "Only 'none' and 'ddp' strategies are supported on macOS. DeepSpeed requires Linux."
+        "compute_strategy must be 'none' or 'ddp' here. To use DeepSpeed (e.g. for " \
+        "T0-11B that won't fit otherwise), add the deepspeed strategy to this assert " \
+        "and pass it through trainer_kwargs."
     if config.fishmask_mode == "create":
         print("Detecting fishmask_mode=create, override batch_size, num_step, fishmask_path")
         config.batch_size = 1

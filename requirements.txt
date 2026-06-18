@@ -18,5 +18,11 @@ psutil==5.9.5
 tensorboard==2.13.0          # Lightning's default logger
 protobuf==3.20.3             # pinned <3.21 to avoid the T5-tokenizer / TB breakage
 
+# Transitive deps pinned to 2023-era versions: their newest releases removed
+# APIs that datasets 2.14 / transformers 4.30 still call.
+pyarrow==12.0.1              # >=15 removed pa.PyExtensionType (breaks datasets)
+huggingface-hub==0.16.4     # newer hub removed cached_download (breaks transformers 4.30)
+fsspec==2023.6.0            # newer fsspec breaks datasets 2.14
+
 # promptsource needs jinja2 at runtime; pandas/pyyaml come in via datasets
 jinja2==3.1.2
