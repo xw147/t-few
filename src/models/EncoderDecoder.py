@@ -341,6 +341,21 @@ class EncoderDecoder(LightningModule):
         metrics = self.validation_test_shared_preparation(outputs, self.config.test_score_file)
         return metrics
 
+    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, optimizer_closure, on_tpu=False, using_lbfgs=False, **kwargs):
+        # In PyTorch >= 2.0 the optimizer.step() method is decorated with
+        # @torch.no_grad().  If we pass the closure directly to optimizer.step(),
+        # Adafactor calls closure() *inside* that no_grad context, which means
+        # the training_step forward pass runs without gradient tracking and the
+        # returned loss has no grad_fn → "element 0 of tensors does not require
+        # grad and does not have a grad_fn".
+        #
+        # Fix: run the closure here (grad tracking is active) so that forward +
+        # backward execute normally, then call optimizer.step() WITHOUT a closure
+        # so Adafactor only does the parameter-update step (which reads p.grad
+        # and needs no_grad).  Works for any num_shot / batch size combination.
+        optimizer_closure()        # forward + backward, grad tracking ON
+        optimizer.step()           # parameter update only, no closure re-execution
+
     def configure_optimizers(self):
         optimizer, self.trainable_param_names = get_optimizer(self.model, self.config)
         scheduler = get_scheduler(optimizer, self.config)
