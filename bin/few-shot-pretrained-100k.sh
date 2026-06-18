@@ -57,6 +57,15 @@ do
       num_steps=30                          # fixed: always 30 steps regardless of num_shot
       eval_epoch_interval=1                 # fixed: eval every epoch (1 batch per epoch)
 
+      # Clamp log_every_n_steps to the number of batches per epoch so that
+      # PyTorch Lightning never gets log_every_n_steps > num_batches.  That
+      # mismatch triggers a PL 1.9.x bug with Adafactor that manifests as
+      # "element 0 of tensors does not require grad and does not have a
+      # grad_fn".  Formula: max(1, num_shot / batch_size), capped at 4.
+      log_every_n_steps=$(( num_shot / train_batch_size ))
+      [ "${log_every_n_steps}" -lt 1 ] && log_every_n_steps=1
+      [ "${log_every_n_steps}" -gt 4 ] && log_every_n_steps=4
+
       # for seed in 42 1024 0 1 32
       for seed in 42 
       do
@@ -76,11 +85,13 @@ do
                lr=${lr} compute_strategy="none" \
                compute_precision=bf16 \
                ico_label_strategy=${ico_label_strategy} \
-               log_every_n_steps=1          # fixed: log every step
+               log_every_n_steps=${log_every_n_steps}
         done
       done
     done
   done
 done
 
-echo "All experiments finished."
+echo "All experiments finished."log_every_n_steps=$(( num_shot / train_batch_size ))
+[ "${log_every_n_steps}" -lt 1 ] && log_every_n_steps=1
+[ "${log_every_n_steps}" -gt 4 ] && log_every_n_steps=4

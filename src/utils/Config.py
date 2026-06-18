@@ -48,6 +48,7 @@ class Config(object):
         self.unlikely_loss = 0
         self.length_norm = 0
         self.grad_accum_factor = 1
+        self.log_every_n_steps = 4  # overridden at runtime to max(1, num_shot // batch_size) when small
         self.split_option_at_inference = False  # Whether to split the answer choices during eval to lower memory usage for datasets with lots of answer choices
 
         # Optimization configs
