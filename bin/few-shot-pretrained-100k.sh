@@ -25,7 +25,7 @@ conda activate tfew
 REPO=$HOME/work/t-few
 export CONFIG_PATH=$REPO/configs
 export HF_HOME=$SCRATCH/hf_cache            # 40GB+ model cache -> Scratch
-export OUTPUT_PATH=$HOME/t-few/exp_out
+export OUTPUT_PATH=$REPO/exp_out
 mkdir -p "$HF_HOME" "$OUTPUT_PATH" logs
 cd "$REPO"                                  # so 'python -m src.pl_train' finds src/
 

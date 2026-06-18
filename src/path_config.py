@@ -17,7 +17,7 @@ import os
 # ============================================================================
 
 # Set ROOT_DIR to match your environment:
-ROOT_DIR = "~/work/"  # <-- EDIT THIS LINE for your system
+ROOT_DIR = os.path.expanduser("~/work/")  # <-- EDIT THIS LINE for your system
 
 # ============================================================================
 # DERIVED PATHS (Don't modify these unless you have custom paths)
