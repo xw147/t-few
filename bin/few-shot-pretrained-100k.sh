@@ -43,10 +43,6 @@ allow_skip_exp=True
 train_batch_size=4          # for T0-11B, drop to 1 if you hit CUDA OOM
 grad_accum_factor=1
 lr=0.003
-re='^[0-9]+$'
-
-num_steps=0
-eval_epoch_interval=0
 
 # Start with t03b to validate the whole pipeline cheaply (~minutes/exp),
 # then change to 't011b' for the real runs.
@@ -58,8 +54,8 @@ do
     for dataset in ico
     do
       eval_before_training=False
-      num_steps=$(( 30 * ($num_shot / $train_batch_size) ))
-      eval_epoch_interval=30
+      num_steps=30                          # fixed: always 30 steps regardless of num_shot
+      eval_epoch_interval=1                 # fixed: eval every epoch (1 batch per epoch)
 
       # for seed in 42 1024 0 1 32
       for seed in 42 
@@ -79,7 +75,8 @@ do
                batch_size=${train_batch_size} grad_accum_factor=${grad_accum_factor} \
                lr=${lr} compute_strategy="none" \
                compute_precision=bf16 \
-               ico_label_strategy=${ico_label_strategy}
+               ico_label_strategy=${ico_label_strategy} \
+               log_every_n_steps=1          # fixed: log every step
         done
       done
     done
