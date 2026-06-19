@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=40G
-#SBATCH --time=00:30:00
+#SBATCH --time=00:20:00
 #SBATCH --output=logs/tfew_ico_%j.out
 #SBATCH --error=logs/tfew_ico_%j.err
 # ===========================================================================
@@ -44,8 +44,7 @@ train_batch_size=4          # for T0-11B, drop to 1 if you hit CUDA OOM
 grad_accum_factor=1
 lr=0.003
 
-# Start with t03b to validate the whole pipeline cheaply (~minutes/exp),
-# then change to 't011b' for the real runs.
+
 for model in 't03b'         # <-- change to 't011b' once a t03b run works
 do
   # for num_shot in 4 8 16 32 64 128
@@ -54,15 +53,17 @@ do
     for dataset in ico
     do
       eval_before_training=False
-      num_steps=30                          # fixed: always 30 steps regardless of num_shot
-      eval_epoch_interval=1                 # fixed: eval every epoch (1 batch per epoch)
+
+      num_epochs=30
+      batches_per_epoch=$(( num_shot / train_batch_size ))
+      [ "${batches_per_epoch}" -lt 1 ] && batches_per_epoch=1
+      num_steps=$(( num_epochs * batches_per_epoch ))
+      eval_epoch_interval=${num_epochs}    
 
       # Clamp log_every_n_steps to the number of batches per epoch so that
-      # PyTorch Lightning never gets log_every_n_steps > num_batches.  That
-      # mismatch triggers a PL 1.9.x bug with Adafactor that manifests as
-      # "element 0 of tensors does not require grad and does not have a
-      # grad_fn".  Formula: max(1, num_shot / batch_size), capped at 4.
-      log_every_n_steps=$(( num_shot / train_batch_size ))
+      # PyTorch Lightning never gets log_every_n_steps > num_batches.
+      # Reuses batches_per_epoch computed above.
+      log_every_n_steps=${batches_per_epoch}
       [ "${log_every_n_steps}" -lt 1 ] && log_every_n_steps=1
       [ "${log_every_n_steps}" -gt 4 ] && log_every_n_steps=4
 
@@ -92,6 +93,4 @@ do
   done
 done
 
-echo "All experiments finished."log_every_n_steps=$(( num_shot / train_batch_size ))
-[ "${log_every_n_steps}" -lt 1 ] && log_every_n_steps=1
-[ "${log_every_n_steps}" -gt 4 ] && log_every_n_steps=4
+echo "All experiments finished."

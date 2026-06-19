@@ -291,8 +291,11 @@ class EncoderDecoder(LightningModule):
                 if key.startswith("log."):
                     metrics[key.replace("log.", "")] = mean(value)
 
+            # Overwrite (not append) so the file always holds exactly one
+            # result. Validation fires once (at the final epoch), so this
+            # is always the final model's result.
             result_str = json.dumps(metrics) + "\n"
-            with open(output_file, "a+") as f:
+            with open(output_file, "w") as f:
                 f.write(result_str)
             print("\n" + result_str)
         else:
@@ -308,17 +311,14 @@ class EncoderDecoder(LightningModule):
         
         outputs = self._validation_outputs
         self._validation_outputs = []  # Reset for next epoch
-        
-        metrics = self.validation_test_shared_preparation(outputs, self.config.dev_score_file)
 
-        # Consider best validation performance based on PR (Precision-Recall AUC)
-        relevant_metrics = ['PR']
-        eval_model_metric = [metrics.get(m, -1) for m in relevant_metrics]
-        if eval_model_metric > self.best_eval_model_metric:
-            self.best_eval_model_metric = eval_model_metric
-            self.best_eval_global_step = self.global_step
-            print(f"Stored new best metric {relevant_metrics} with values {eval_model_metric} at step {self.global_step}.")
+        # Validation fires once at the final epoch (eval_epoch_interval=num_epochs).
+        # Write the result unconditionally — this is the final model's performance.
+        metrics = self.validation_test_shared_preparation(
+            outputs, self.config.dev_score_file
+        )
 
+        self.best_eval_global_step = self.global_step
         self.save_model()
 
     def test_step(self, batch, batch_idx):
