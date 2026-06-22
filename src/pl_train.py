@@ -15,7 +15,14 @@ from src.utils.util import ParseKwargs, set_seeds
 
 def get_transformer(config):
     tokenizer = AutoTokenizer.from_pretrained(config.origin_model)
-    model = AutoModelForSeq2SeqLM.from_pretrained(config.origin_model, low_cpu_mem_usage=True)
+    # Load directly in bf16 to halve peak CPU RAM (fp32 would need ~44 GB for
+    # T0-11B; bf16 needs ~22 GB).  This also avoids a temporary fp32 copy on
+    # the GPU before Lightning's AMP can cast it.
+    model = AutoModelForSeq2SeqLM.from_pretrained(
+        config.origin_model,
+        low_cpu_mem_usage=True,
+        torch_dtype=torch.bfloat16,
+    )
 
     tokenizer.model_max_length = config.max_seq_len
     model = modify_transformer(model, config)

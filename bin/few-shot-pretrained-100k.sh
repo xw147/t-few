@@ -3,8 +3,8 @@
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=40G
-#SBATCH --time=00:20:00
+#SBATCH --mem=64G
+#SBATCH --time=00:40:00
 #SBATCH --output=logs/tfew_ico_%j.out
 #SBATCH --error=logs/tfew_ico_%j.err
 # ===========================================================================
@@ -40,13 +40,22 @@ export HF_DATASETS_OFFLINE=1
 
 # --- Experiment settings ---------------------------------------------------
 allow_skip_exp=True
-train_batch_size=4          # for T0-11B, drop to 1 if you hit CUDA OOM
-grad_accum_factor=1
 lr=0.003
 
 
-for model in 't03b'         # <-- change to 't011b' once a t03b run works
+for model in 't011b'        # 't03b' for quick pipeline check, 't011b' for real runs
 do
+  # T0-3B fits comfortably with batch_size=4.
+  # T0-11B (~22 GB weights at bf16) needs batch_size=1 on the L40S (46 GB);
+  # grad_accum_factor=4 keeps the effective batch size identical (1×4=4).
+  if [ "${model}" = "t011b" ]; then
+    train_batch_size=1
+    grad_accum_factor=4
+  else
+    train_batch_size=4
+    grad_accum_factor=1
+  fi
+
   # for num_shot in 4 8 16 32 64 128
   for num_shot in 4
   do
