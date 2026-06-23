@@ -105,13 +105,11 @@ def main(config):
             "gradient_clip_val": config.grad_clip_norm,
         }
 
-    # Clamp log_every_n_steps so it never exceeds the number of training batches
-    # (num_shot // batch_size).  This avoids a PL 1.9.x bug where
-    # log_every_n_steps > num_batches causes the Adafactor closure() to receive
-    # a detached loss tensor → RuntimeError: element 0 of tensors does not require grad.
-    # Works for any num_shot value (4, 8, 16, 32, 64, 128, ...).
-    num_batches_per_epoch = max(1, config.num_shot // config.batch_size)
-    trainer_kwargs["log_every_n_steps"] = max(1, min(config.log_every_n_steps, num_batches_per_epoch))
+    # Clamp log_every_n_steps to optimizer steps per epoch (not raw batches).
+    # With grad_accum_factor>1, one optimizer step = grad_accum_factor batches,
+    # so the correct denominator is batch_size * grad_accum_factor.
+    optimizer_steps_per_epoch = max(1, config.num_shot // (config.batch_size * config.grad_accum_factor))
+    trainer_kwargs["log_every_n_steps"] = max(1, min(config.log_every_n_steps, optimizer_steps_per_epoch))
 
     trainer = Trainer(**trainer_kwargs)
     trainer.fit(model, datamodule)

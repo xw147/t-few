@@ -57,7 +57,7 @@ do
   fi
 
   # for num_shot in 4 8 16 32 64 128
-  for num_shot in 4
+  for num_shot in 128
   do
     for dataset in ico
     do
@@ -66,13 +66,19 @@ do
       num_epochs=30
       batches_per_epoch=$(( num_shot / train_batch_size ))
       [ "${batches_per_epoch}" -lt 1 ] && batches_per_epoch=1
-      num_steps=$(( num_epochs * batches_per_epoch ))
+      # PL's max_steps counts OPTIMIZER steps, not raw batches.
+      # With grad_accum_factor>1 (t011b), one optimizer step = grad_accum_factor
+      # batches, so we must divide to get the correct step count.
+      # e.g. t011b, num_shot=128: batches=128, accum=4 → 32 steps/epoch × 30 = 960
+      # e.g. t03b,  num_shot=128: batches=32,  accum=1 → 32 steps/epoch × 30 = 960
+      optimizer_steps_per_epoch=$(( batches_per_epoch / grad_accum_factor ))
+      [ "${optimizer_steps_per_epoch}" -lt 1 ] && optimizer_steps_per_epoch=1
+      num_steps=$(( num_epochs * optimizer_steps_per_epoch ))
       eval_epoch_interval=${num_epochs}    
 
-      # Clamp log_every_n_steps to the number of batches per epoch so that
-      # PyTorch Lightning never gets log_every_n_steps > num_batches.
-      # Reuses batches_per_epoch computed above.
-      log_every_n_steps=${batches_per_epoch}
+      # log_every_n_steps must also be capped to optimizer steps per epoch
+      # (not raw batches) to avoid the Adafactor no-grad bug in PL 1.9.x.
+      log_every_n_steps=${optimizer_steps_per_epoch}
       [ "${log_every_n_steps}" -lt 1 ] && log_every_n_steps=1
       [ "${log_every_n_steps}" -gt 4 ] && log_every_n_steps=4
 
