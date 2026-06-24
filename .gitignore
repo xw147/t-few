@@ -29,3 +29,6 @@ untracked
 note/
 promptsource-main
 data/
+exp_out_mac/
+exp_out/
+exp_out_hpc/
