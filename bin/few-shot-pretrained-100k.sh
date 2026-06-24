@@ -3,8 +3,8 @@
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --time=00:40:00
+#SBATCH --mem=40G
+#SBATCH --time=01:30:00
 #SBATCH --output=logs/tfew_ico_%j.out
 #SBATCH --error=logs/tfew_ico_%j.err
 # ===========================================================================
@@ -43,7 +43,7 @@ allow_skip_exp=True
 lr=0.003
 
 
-for model in 't011b'        # 't03b' for quick pipeline check, 't011b' for real runs
+for model in 't03b'        # 't03b' for quick pipeline check, 't011b' for real runs
 do
   # T0-3B fits comfortably with batch_size=4.
   # T0-11B (~22 GB weights at bf16) needs batch_size=1 on the L40S (46 GB);
@@ -57,7 +57,7 @@ do
   fi
 
   # for num_shot in 4 8 16 32 64 128
-  for num_shot in 128
+  for num_shot in 256 512
   do
     for dataset in ico
     do
@@ -83,9 +83,9 @@ do
       [ "${log_every_n_steps}" -gt 4 ] && log_every_n_steps=4
 
       # for seed in 42 1024 0 1 32
-      for seed in 42 
+      for seed in 42 1024 0 1 32
       do
-        for ico_label_strategy in all
+        for ico_label_strategy in low_only
         do
           python -m src.pl_train \
             -c ${model}.json+ia3.json+global.json \
