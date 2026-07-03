@@ -92,9 +92,9 @@ def make_result_table(args):
             for ns in numshot_values:
                 vals = raw_by_shot[ns].get(metric, [])
                 if len(vals) > 1:
-                    rows[metric][ns] = f"{mean(vals):.2f} ({std(vals):.2f})"
+                    rows[metric][ns] = f"{mean(vals):.4f} ({std(vals):.4f})"
                 elif len(vals) == 1:
-                    rows[metric][ns] = f"{vals[0]:.2f}"
+                    rows[metric][ns] = f"{vals[0]:.4f}"
                 else:
                     rows[metric][ns] = ""
 
